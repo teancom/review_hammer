@@ -73,22 +73,26 @@ Replace `null-safety` in the production categories list with the appropriate var
 
 ### 3. Run Each Category
 
-For each category, invoke the review script via Bash:
+For each category, invoke the review script via Bash with a per-specialist timeout (180 seconds):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/.venv/bin/python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE
+timeout 180 ${CLAUDE_PLUGIN_ROOT}/.venv/bin/python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE
 ```
 
 **For each invocation:**
 1. Substitute `FILE_PATH`, `CATEGORY`, and `LANGUAGE` with actual values
-2. Execute the command via the Bash tool
-3. Parse the stdout as JSON
-4. If parsing fails or the result is an empty array, continue to the next category without error
-5. If the result is a non-empty array, collect all findings
+2. Execute the command via the Bash tool with a 180-second timeout
+3. If the command times out or returns a non-zero exit code:
+   - Log which specialist failed and the reason (timeout, non-zero exit, parse error) to your output
+   - Add the category name to the `failed_categories` list with the error reason in `error_details`
+   - Continue to the next specialist — do NOT abort the entire file review
+4. Parse the stdout as JSON
+5. If parsing fails or the result is an empty array, continue to the next category without error
+6. If the result is a non-empty array, collect all findings
 
 **Example invocation for Python production file:**
 ```bash
-${CLAUDE_PLUGIN_ROOT}/.venv/bin/python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_file.py src/main.py --category race-conditions --language python
+timeout 180 ${CLAUDE_PLUGIN_ROOT}/.venv/bin/python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_file.py src/main.py --category race-conditions --language python
 ```
 
 ### 4. Collect and Merge Results
@@ -118,7 +122,9 @@ When all categories have been processed, output a single JSON object to stdout w
     }
   ],
   "categories_run": ["race-conditions", "null-safety", "resource-leaks", "logic-errors", "error-handling", "state-management"],
-  "categories_with_findings": ["logic-errors"]
+  "categories_with_findings": ["logic-errors"],
+  "failed_categories": [],
+  "error_details": {}
 }
 ```
 
@@ -129,12 +135,48 @@ When all categories have been processed, output a single JSON object to stdout w
 - `findings`: Array of all findings from all categories (merged), each with: `lines`, `severity`, `category`, `description`, `impact`, `confidence`
 - `categories_run`: Array of category names run (in order)
 - `categories_with_findings`: Array of category names that returned at least one finding
+- `failed_categories`: Array of category names that failed (timeout, non-zero exit, parse error)
+- `error_details`: Object mapping failed category names to error descriptions (e.g., `{"race-conditions": "timeout after 180 seconds"}`)
 
-If no findings are detected from any category, `findings` will be an empty array.
+If no findings are detected from any category, `findings` will be an empty array. If a category fails, it is added to `failed_categories` with details in `error_details`.
 
 ## Error Handling
 
-- If a specialist returns an empty JSON array (`[]`), treat it as "no findings" — do not error
-- If a specialist command fails to execute, report the error and continue to the next category
-- If JSON parsing fails, log the error and continue to the next category
-- Always output the consolidated JSON structure, even if some categories had errors or no findings
+If a specialist invocation fails (non-zero exit, timeout, or unparseable output):
+
+1. **Log the failure:** Note which specialist failed and why (e.g., "race-conditions: timeout after 180 seconds" or "null-safety: non-zero exit code 2")
+2. **Continue to the next specialist:** Do NOT abort the entire file review because one specialist failed
+3. **Track the failure:** Add the category name to `failed_categories` array and include error description in `error_details` object
+4. **Return valid output:** Even if all specialists fail, return a valid JSON structure with empty `findings`, all categories in `failed_categories`, and details in `error_details`
+
+**Handling specific failure modes:**
+- **Timeout (exceeded 180 seconds):** Log timeout message, add category to `failed_categories`, continue
+- **Non-zero exit code:** Log exit code, add category to `failed_categories`, continue
+- **Unparseable output:** Log parse error, add category to `failed_categories`, continue
+- **Empty results (`[]`):** Treat as "no findings" — do not error, do not add to `failed_categories`
+
+**Example output with failures:**
+```json
+{
+  "file": "src/main.py",
+  "language": "python",
+  "is_test": false,
+  "findings": [
+    {
+      "lines": [15],
+      "severity": "high",
+      "category": "logic-errors",
+      "description": "Off-by-one error in loop condition",
+      "impact": "Loop will process one extra element",
+      "confidence": 0.85
+    }
+  ],
+  "categories_run": ["race-conditions", "null-safety", "resource-leaks", "logic-errors", "error-handling", "state-management"],
+  "categories_with_findings": ["logic-errors"],
+  "failed_categories": ["race-conditions", "state-management"],
+  "error_details": {
+    "race-conditions": "timeout after 180 seconds",
+    "state-management": "non-zero exit code 2"
+  }
+}
+```
