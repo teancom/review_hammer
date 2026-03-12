@@ -19,7 +19,7 @@ When this skill is invoked with `$ARGUMENTS`:
    - If no arguments provided, ask the user: "Which file or directory would you like me to review?"
 
 2. **Verify path existence:**
-   - Use the Glob or Bash tool to confirm the path exists
+   - Use the Glob tool to confirm the path exists (do NOT use Bash)
    - If the path does not exist, report clearly: "Error: Path does not exist: {path}" (AC1.3)
    - Stop execution
 
@@ -31,28 +31,26 @@ When this skill is invoked with `$ARGUMENTS`:
 
 When the target is a directory:
 
-1. **Enumerate supported files:**
-   - Use Glob to recursively find all files with these extensions:
-     - **Python:** `.py`
-     - **C:** `.c`, `.h`
-     - **C++:** `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`
-     - **Java:** `.java`
-     - **C#:** `.cs`
-     - **JavaScript/JSX:** `.js`, `.mjs`, `.cjs`, `.jsx`
-     - **TypeScript/TSX:** `.ts`, `.tsx`, `.mts`, `.cts`
-     - **Kotlin:** `.kt`, `.kts`
-     - **Rust:** `.rs`
-     - **Go:** `.go`
-     - **Swift:** `.swift`
+1. **Enumerate supported files using Glob (no Bash):**
+   - Use the **Glob tool** (NOT Bash, NOT `git ls-files`, NOT `find`) to find files
+   - Call Glob multiple times in parallel with these patterns, scoped to the target directory:
+     - `**/*.py`
+     - `**/*.{c,h}`
+     - `**/*.{cpp,cc,cxx,hpp,hxx}`
+     - `**/*.java`
+     - `**/*.cs`
+     - `**/*.{js,mjs,cjs,jsx}`
+     - `**/*.{ts,tsx,mts,cts}`
+     - `**/*.{kt,kts}`
+     - `**/*.rs`
+     - `**/*.go`
+     - `**/*.swift`
 
-2. **Apply exclusions:**
-   - Filter out files in these directories:
+2. **Apply exclusions (filter results, no Bash):**
+   - From the Glob results, discard any path containing these directory segments:
      - `node_modules/`, `.git/`, `build/`, `dist/`, `target/`, `.gradle/`
      - `__pycache__/`, `.tox/`, `vendor/`, `.venv/`, `venv/`
-
-3. **Respect .gitignore (if in git repo):**
-   - If the directory is part of a git repository, use `git ls-files` to respect `.gitignore` rules
-   - Only enumerate files that would be tracked by git
+   - This filtering is done in-context on the Glob results — do NOT shell out to grep or any Bash command
 
 4. **Handle empty results:**
    - If no supported files are found, report: "No supported language files found in {path}. Nothing to review." (AC1.4)
@@ -122,15 +120,15 @@ Dispatch specialized reviewer agents with concurrency control:
    ```
 
 2. **Batch dispatch with concurrency control:**
-   - Read the `REVIEWERS_MAX_CONCURRENT` environment variable (default: 3)
+   - Read the `REVIEWERS_MAX_CONCURRENT` environment variable (default: 2)
    - Divide the file list into batches of size `REVIEWERS_MAX_CONCURRENT`
    - Dispatch each batch simultaneously
    - Wait for all agents in a batch to complete before dispatching the next batch
    - Rate limiting is handled by the `review_file.py` backend and Phase 6 safeguards
    - Collect the JSON output from each agent as it completes
-   - Example: If reviewing 25 files with `REVIEWERS_MAX_CONCURRENT=3`:
-     - Batch 1: Files 1-3 (dispatch all, wait for all to complete)
-     - Batch 2: Files 4-6 (dispatch all, wait for all to complete)
+   - Example: If reviewing 25 files with `REVIEWERS_MAX_CONCURRENT=2`:
+     - Batch 1: Files 1-2 (dispatch all, wait for all to complete)
+     - Batch 2: Files 3-4 (dispatch all, wait for all to complete)
      - ... continue until all batches complete
 
 3. **Expected output from each agent:**
