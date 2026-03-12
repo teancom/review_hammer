@@ -15,6 +15,48 @@ from typing import Optional
 from openai import OpenAI, APIConnectionError, RateLimitError
 
 
+EXTENSION_MAP = {
+    ".py": "python",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
+    ".hxx": "cpp",
+    ".java": "java",
+    ".cs": "csharp",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".rs": "rust",
+    ".go": "go",
+    ".swift": "swift",
+}
+
+
+def detect_language(file_path: str) -> str:
+    """
+    Detect programming language from file extension.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        Language key (maps to prompts/{language}.md), or "generic" if unknown
+    """
+    path_obj = Path(file_path)
+    extension = path_obj.suffix.lower()
+    return EXTENSION_MAP.get(extension, "generic")
+
+
 def prepend_line_numbers(source: str) -> str:
     """
     Prepend line numbers to source code.
@@ -233,8 +275,9 @@ def main():
     )
     parser.add_argument(
         "--language",
-        required=True,
-        help="Language key (maps to prompts/{language}.md)"
+        required=False,
+        default=None,
+        help="Language key (maps to prompts/{language}.md). If not provided, auto-detected from file extension."
     )
     parser.add_argument(
         "--api-key",
@@ -253,6 +296,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Resolve language from args or auto-detect from file extension
+    language = args.language
+    if not language:
+        language = detect_language(args.file_path)
 
     # Resolve configuration from args or env vars
     api_key = args.api_key or os.environ.get("REVIEWERS_API_KEY")
@@ -274,7 +322,7 @@ def main():
         findings = review_file(
             file_path=args.file_path,
             category=args.category,
-            language=args.language,
+            language=language,
             api_key=api_key,
             base_url=base_url,
             model=model

@@ -24,7 +24,9 @@ from review_file import (
     prepend_line_numbers,
     extract_category_prompt,
     parse_findings,
-    review_file
+    review_file,
+    detect_language,
+    EXTENSION_MAP
 )
 
 
@@ -75,6 +77,103 @@ class TestPrependLineNumbers:
         result = prepend_line_numbers(source)
         assert "    if True:" in result
         assert "        pass" in result
+
+
+class TestDetectLanguage:
+    """Test file extension to language detection (AC3.2, AC3.3)"""
+
+    def test_python_extension(self):
+        """Should detect .py as python"""
+        result = detect_language("foo.py")
+        assert result == "python"
+
+    def test_c_extension(self):
+        """Should detect .c and .h as c"""
+        assert detect_language("foo.c") == "c"
+        assert detect_language("header.h") == "c"
+
+    def test_cpp_extensions(self):
+        """Should detect multiple C++ extensions"""
+        assert detect_language("main.cpp") == "cpp"
+        assert detect_language("file.cc") == "cpp"
+        assert detect_language("file.cxx") == "cpp"
+        assert detect_language("header.hpp") == "cpp"
+        assert detect_language("header.hxx") == "cpp"
+
+    def test_java_extension(self):
+        """Should detect .java as java"""
+        result = detect_language("Main.java")
+        assert result == "java"
+
+    def test_csharp_extension(self):
+        """Should detect .cs as csharp"""
+        result = detect_language("program.cs")
+        assert result == "csharp"
+
+    def test_javascript_extensions(self):
+        """Should detect multiple JavaScript extensions"""
+        assert detect_language("app.js") == "javascript"
+        assert detect_language("module.mjs") == "javascript"
+        assert detect_language("common.cjs") == "javascript"
+        assert detect_language("component.jsx") == "javascript"
+
+    def test_typescript_extensions(self):
+        """Should detect multiple TypeScript extensions"""
+        assert detect_language("app.ts") == "typescript"
+        assert detect_language("component.tsx") == "typescript"
+        assert detect_language("module.mts") == "typescript"
+        assert detect_language("compat.cts") == "typescript"
+
+    def test_kotlin_extensions(self):
+        """Should detect .kt and .kts as kotlin"""
+        assert detect_language("main.kt") == "kotlin"
+        assert detect_language("script.kts") == "kotlin"
+
+    def test_rust_extension(self):
+        """Should detect .rs as rust"""
+        result = detect_language("lib.rs")
+        assert result == "rust"
+
+    def test_go_extension(self):
+        """Should detect .go as go"""
+        result = detect_language("main.go")
+        assert result == "go"
+
+    def test_swift_extension(self):
+        """Should detect .swift as swift"""
+        result = detect_language("app.swift")
+        assert result == "swift"
+
+    def test_unknown_extension_returns_generic(self):
+        """Should return 'generic' for unknown extensions"""
+        assert detect_language("script.rb") == "generic"
+        assert detect_language("script.lua") == "generic"
+        assert detect_language("file.xyz") == "generic"
+
+    def test_case_insensitive(self):
+        """Should handle uppercase extensions"""
+        assert detect_language("FILE.PY") == "python"
+        assert detect_language("File.Java") == "java"
+
+    def test_path_with_directories(self):
+        """Should extract extension from full path"""
+        assert detect_language("/home/user/project/main.py") == "python"
+        assert detect_language("../relative/path/script.rs") == "rust"
+
+    def test_no_extension_returns_generic(self):
+        """Should return 'generic' for files with no extension"""
+        result = detect_language("Makefile")
+        assert result == "generic"
+
+    def test_extension_map_completeness(self):
+        """All extensions in EXTENSION_MAP should be in task spec"""
+        expected_extensions = {
+            ".py", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx",
+            ".java", ".cs", ".js", ".mjs", ".cjs", ".jsx",
+            ".ts", ".tsx", ".mts", ".cts",
+            ".kt", ".kts", ".rs", ".go", ".swift"
+        }
+        assert set(EXTENSION_MAP.keys()) == expected_extensions
 
 
 class TestExtractCategoryPrompt:
