@@ -108,8 +108,8 @@ Dispatch specialized reviewer agents in parallel:
    - Collect the JSON output from each agent as it completes
 
 3. **Expected output from each agent:**
-   - JSON structure with fields like `findings`, `category`, `file`, `language`
-   - Each finding includes: `description`, `severity`, `confidence`, `line_start`, `line_end`
+   - JSON structure with fields like `findings`, `file`, `language`, `is_test`, `categories_run`, `categories_with_findings`
+   - Each finding includes: `lines` (array of [start_line, end_line]), `severity`, `category`, `description`, `impact`, `confidence`
 
 ## Phase 5: Opus Judge Pass
 
