@@ -18,6 +18,11 @@ EOF
   exit 0
 }
 
+# Auto-approve caffeinate (prevents idle sleep during long reviews)
+if echo "$COMMAND" | grep -qE '^caffeinate '; then
+  approve "caffeinate auto-approved by Review Hammer plugin"
+fi
+
 # Auto-approve review_file.py invocations (via uv run or direct)
 if echo "$COMMAND" | grep -q "review_file.py"; then
   approve "review_file.py auto-approved by Review Hammer plugin"

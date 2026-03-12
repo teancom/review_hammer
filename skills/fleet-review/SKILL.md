@@ -112,13 +112,18 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **Resolve the plugin root path:**
+1. **Prevent system sleep (macOS):**
+   - Run via Bash: `caffeinate -i -w $$ &`
+   - This prevents idle sleep for the duration of the current process
+   - Without this, macOS will suspend processes when the display sleeps, causing reviews to stall for hours
+
+2. **Resolve the plugin root path:**
    - Use the Bash tool to run: `ls -d ~/.claude/plugins/cache/review-hammer-marketplace/review-hammer/*/ 2>/dev/null | sort -V | tail -1`
    - This finds the highest-versioned installed plugin directory
    - Strip any trailing slash/newline and store as `plugin_root`
    - If no result, report error: "Review Hammer plugin not installed. Run: /plugin install review-hammer@review-hammer-marketplace"
 
-2. **For each file, invoke the Agent tool:**
+3. **For each file, invoke the Agent tool:**
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
@@ -126,12 +131,12 @@ Dispatch specialized reviewer agents with concurrency control:
    ```
    - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
 
-3. **Batch dispatch with concurrency control:**
+4. **Batch dispatch with concurrency control:**
    - Dispatch 3 file-reviewer agents at a time (batch size of 3)
    - Wait for all agents in a batch to complete before dispatching the next batch
    - Collect the JSON output from each agent as it completes
 
-4. **Expected output from each agent:**
+5. **Expected output from each agent:**
    - JSON structure with fields like `findings`, `file`, `language`, `is_test`, `categories_run`, `categories_with_findings`
    - Each finding includes: `lines` (array of [start_line, end_line]), `severity`, `category`, `description`, `impact`, `confidence`
    - Per-specialist error handling: If a specialist times out or fails for a file, that file's review is noted as incomplete but other files continue processing
