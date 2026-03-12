@@ -26,8 +26,11 @@ from review_file import (
     parse_findings,
     review_file,
     detect_language,
-    EXTENSION_MAP
+    EXTENSION_MAP,
+    RetryExhaustedError,
+    MAX_RETRIES
 )
+from openai import RateLimitError, APITimeoutError, APIConnectionError, AuthenticationError
 
 
 class TestPrependLineNumbers:
@@ -435,6 +438,221 @@ class TestReviewFile:
 
                 # Verify the call succeeded (template was found)
                 assert mock_client.chat.completions.create.called
+
+        finally:
+            os.unlink(temp_file)
+
+
+class TestRetryAndBackoff:
+    """Test retry and backoff logic for error handling (AC6.1)"""
+
+    def test_rate_limit_error_triggers_retry_and_exhausts(self):
+        """RateLimitError should trigger retry and eventually raise RetryExhaustedError"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            with patch('review_file.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                # Simulate persistent rate limit error on all attempts
+                mock_response = MagicMock()
+                mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+
+                with patch('review_file.time.sleep') as mock_sleep:
+                    with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                        review_file(
+                            file_path=temp_file,
+                            category="logic-errors",
+                            language="generic",
+                            api_key="test-key",
+                            base_url="https://api.example.com/",
+                            model="test-model"
+                        )
+
+                    # Should have called sleep MAX_RETRIES times (1, 2, 4, 8, 16 seconds)
+                    assert mock_sleep.call_count == MAX_RETRIES
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_authentication_error_raises_immediately_without_retry(self):
+        """AuthenticationError should raise immediately without retry"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            with patch('review_file.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_response = MagicMock()
+                mock_client.chat.completions.create.side_effect = AuthenticationError("Invalid API key", response=mock_response, body={})
+
+                with patch('review_file.time.sleep') as mock_sleep:
+                    with pytest.raises(AuthenticationError):
+                        review_file(
+                            file_path=temp_file,
+                            category="logic-errors",
+                            language="generic",
+                            api_key="test-key",
+                            base_url="https://api.example.com/",
+                            model="test-model"
+                        )
+
+                    # Should NOT have called sleep at all
+                    assert mock_sleep.call_count == 0
+
+                    # Should have been called only once (no retries)
+                    assert mock_client.chat.completions.create.call_count == 1
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_api_timeout_error_triggers_retry(self):
+        """APITimeoutError should trigger retry and eventually raise RetryExhaustedError"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            with patch('review_file.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_request = MagicMock()
+                mock_client.chat.completions.create.side_effect = APITimeoutError(request=mock_request)
+
+                with patch('review_file.time.sleep') as mock_sleep:
+                    with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                        review_file(
+                            file_path=temp_file,
+                            category="logic-errors",
+                            language="generic",
+                            api_key="test-key",
+                            base_url="https://api.example.com/",
+                            model="test-model"
+                        )
+
+                    # Should have called sleep MAX_RETRIES times
+                    assert mock_sleep.call_count == MAX_RETRIES
+                    # Should have attempted MAX_RETRIES + 1 times total
+                    assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_api_connection_error_triggers_retry(self):
+        """APIConnectionError should trigger retry and eventually raise RetryExhaustedError"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            with patch('review_file.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_request = MagicMock()
+                mock_client.chat.completions.create.side_effect = APIConnectionError(message="Connection refused", request=mock_request)
+
+                with patch('review_file.time.sleep') as mock_sleep:
+                    with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                        review_file(
+                            file_path=temp_file,
+                            category="logic-errors",
+                            language="generic",
+                            api_key="test-key",
+                            base_url="https://api.example.com/",
+                            model="test-model"
+                        )
+
+                    # Should have called sleep MAX_RETRIES times
+                    assert mock_sleep.call_count == MAX_RETRIES
+                    # Should have attempted MAX_RETRIES + 1 times total
+                    assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_successful_response_on_second_attempt_after_transient_error(self):
+        """Should successfully return findings on second attempt after transient error"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            mock_response = MagicMock()
+            mock_response.choices[0].message.content = json.dumps([
+                {"lines": [1, 2], "severity": "high", "category": "logic-errors"}
+            ])
+
+            with patch('review_file.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                # Fail first time with timeout, succeed second time
+                mock_request = MagicMock()
+                mock_client.chat.completions.create.side_effect = [
+                    APITimeoutError(request=mock_request),
+                    mock_response
+                ]
+
+                with patch('review_file.time.sleep') as mock_sleep:
+                    result = review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model"
+                    )
+
+                    # Should have succeeded on second attempt
+                    assert isinstance(result, list)
+                    assert len(result) == 1
+                    assert result[0]["lines"] == [1, 2]
+
+                    # Should have slept once (between attempts)
+                    assert mock_sleep.call_count == 1
+
+                    # Should have called create twice (first failed, second succeeded)
+                    assert mock_client.chat.completions.create.call_count == 2
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_exponential_backoff_increases_correctly(self):
+        """Backoff should increase exponentially: 1s, 2s, 4s, 8s, 16s"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            with patch('review_file.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_response = MagicMock()
+                mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+
+                with patch('review_file.time.sleep') as mock_sleep:
+                    with pytest.raises(RetryExhaustedError):
+                        review_file(
+                            file_path=temp_file,
+                            category="logic-errors",
+                            language="generic",
+                            api_key="test-key",
+                            base_url="https://api.example.com/",
+                            model="test-model"
+                        )
+
+                    # Extract sleep durations from calls
+                    sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+                    # Should be [1.0, 2.0, 4.0, 8.0, 16.0]
+                    assert len(sleep_calls) == MAX_RETRIES
+                    assert sleep_calls[0] == 1.0
+                    assert sleep_calls[1] == 2.0
+                    assert sleep_calls[2] == 4.0
+                    assert sleep_calls[3] == 8.0
+                    assert sleep_calls[4] == 16.0
 
         finally:
             os.unlink(temp_file)

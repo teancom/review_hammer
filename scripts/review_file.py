@@ -278,50 +278,22 @@ def review_file(
 
         except AuthenticationError as e:
             # Do not retry authentication errors
-            print(f"Error: Authentication failed: {e}", file=sys.stderr)
             raise
 
-        except RateLimitError as e:
-            # Retry on rate limit
+        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            # Retry on rate limit, timeout, or connection error
+            error_name = type(e).__name__
             if attempt < MAX_RETRIES:
                 print(
-                    f"Rate limit error (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                    f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
                     f"Retrying in {backoff:.1f}s...",
                     file=sys.stderr
                 )
                 time.sleep(backoff)
                 backoff = min(backoff * 2, MAX_BACKOFF)
             else:
-                print(f"Error: Rate limit error after {MAX_RETRIES} retries: {e}", file=sys.stderr)
-                raise RetryExhaustedError(f"Rate limit error after {MAX_RETRIES} retries")
-
-        except APITimeoutError as e:
-            # Retry on timeout
-            if attempt < MAX_RETRIES:
-                print(
-                    f"Timeout error (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
-                    f"Retrying in {backoff:.1f}s...",
-                    file=sys.stderr
-                )
-                time.sleep(backoff)
-                backoff = min(backoff * 2, MAX_BACKOFF)
-            else:
-                print(f"Error: Timeout after {MAX_RETRIES} retries: {e}", file=sys.stderr)
-                raise RetryExhaustedError(f"Timeout after {MAX_RETRIES} retries")
-
-        except APIConnectionError as e:
-            # Retry on connection error
-            if attempt < MAX_RETRIES:
-                print(
-                    f"Connection error (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
-                    f"Retrying in {backoff:.1f}s...",
-                    file=sys.stderr
-                )
-                time.sleep(backoff)
-                backoff = min(backoff * 2, MAX_BACKOFF)
-            else:
-                print(f"Error: Connection failed after {MAX_RETRIES} retries: {e}", file=sys.stderr)
-                raise RetryExhaustedError(f"Connection failed after {MAX_RETRIES} retries")
+                print(f"Error: {error_name} after {MAX_RETRIES} retries: {e}", file=sys.stderr)
+                raise RetryExhaustedError(f"{error_name} after {MAX_RETRIES} retries")
 
     # This should not be reached, but raise if somehow loop exits normally
     raise RetryExhaustedError("Unexpected end of retry loop")
@@ -403,7 +375,7 @@ def main():
             timeout=args.timeout
         )
 
-        # Output findings as JSON (even if empty due to retries exhausted)
+        # Output findings as JSON
         print(json.dumps(findings, indent=2))
 
     except FileNotFoundError as e:
