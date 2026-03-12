@@ -127,7 +127,7 @@ Dispatch specialized reviewer agents with concurrency control:
    - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
 
 3. **Batch dispatch with concurrency control:**
-   - Dispatch 2 file-reviewer agents at a time (batch size of 2)
+   - Dispatch 3 file-reviewer agents at a time (batch size of 3)
    - Wait for all agents in a batch to complete before dispatching the next batch
    - Collect the JSON output from each agent as it completes
 

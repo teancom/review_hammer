@@ -12,8 +12,11 @@ Sends a single file + category to an OpenAI-compatible API and returns structure
 """
 
 import argparse
+import calendar
+import email.utils
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -27,6 +30,35 @@ from openai import OpenAI, APIConnectionError, RateLimitError, APITimeoutError, 
 MAX_RETRIES = 5
 INITIAL_BACKOFF = 1.0  # seconds
 MAX_BACKOFF = 60.0  # seconds
+
+
+def parse_retry_after(value: str) -> Optional[float]:
+    """
+    Parse an RFC 7231 Retry-After header value.
+
+    Supports both formats:
+    - Delay in seconds: "5", "120"
+    - HTTP-date: "Fri, 31 Dec 2021 23:59:59 GMT"
+
+    Returns seconds to wait, or None if unparseable.
+    """
+    # Try as a number of seconds first
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        pass
+
+    # Try as an HTTP-date (RFC 2822 / RFC 7231)
+    try:
+        parsed = email.utils.parsedate(value)
+        if parsed is not None:
+            target_utc = calendar.timegm(parsed)
+            delay = target_utc - time.time()
+            return max(0.0, delay)
+    except (ValueError, TypeError, OverflowError):
+        pass
+
+    return None
 
 
 EXTENSION_MAP = {
@@ -298,13 +330,34 @@ def review_file(
             # Retry on rate limit, timeout, or connection error
             error_name = type(e).__name__
             if attempt < MAX_RETRIES:
-                print(
-                    f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
-                    f"Retrying in {backoff:.1f}s...",
-                    file=sys.stderr
-                )
-                time.sleep(backoff)
-                backoff = min(backoff * 2, MAX_BACKOFF)
+                # Check for Retry-After header (RateLimitError from openai SDK
+                # exposes the response object)
+                retry_after = None
+                if isinstance(e, RateLimitError) and hasattr(e, 'response') and e.response is not None:
+                    raw_header = e.response.headers.get('retry-after')
+                    if raw_header is not None:
+                        retry_after = parse_retry_after(raw_header)
+
+                if retry_after is not None:
+                    # Server told us exactly how long to wait
+                    wait_time = retry_after
+                    print(
+                        f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                        f"Retry-After: {wait_time:.1f}s",
+                        file=sys.stderr
+                    )
+                else:
+                    # Exponential backoff with jitter (±25%)
+                    jitter = backoff * random.uniform(-0.25, 0.25)
+                    wait_time = backoff + jitter
+                    print(
+                        f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                        f"Retrying in {wait_time:.1f}s...",
+                        file=sys.stderr
+                    )
+                    backoff = min(backoff * 2, MAX_BACKOFF)
+
+                time.sleep(wait_time)
             else:
                 print(f"Error: {error_name} after {MAX_RETRIES} retries: {e}", file=sys.stderr)
                 raise RetryExhaustedError(f"{error_name} after {MAX_RETRIES} retries")

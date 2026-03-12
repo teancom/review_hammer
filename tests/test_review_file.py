@@ -8,9 +8,11 @@ Verifies:
 - reviewers.AC2.4: Script handles empty/malformed API responses
 """
 
+import email.utils
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -20,6 +22,7 @@ from review_file import (
     prepend_line_numbers,
     extract_category_prompt,
     parse_findings,
+    parse_retry_after,
     review_file,
     detect_language,
     EXTENSION_MAP,
@@ -497,8 +500,9 @@ class TestRetryAndBackoff:
         with patch('review_file.OpenAI') as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
-            # Simulate persistent rate limit error on all attempts
+            # Simulate persistent rate limit error on all attempts (no Retry-After header)
             mock_response = MagicMock()
+            mock_response.headers = {}
             mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
 
             with patch('review_file.time.sleep') as mock_sleep:
@@ -634,14 +638,50 @@ class TestRetryAndBackoff:
                 # Should have called create twice (first failed, second succeeded)
                 assert mock_client.chat.completions.create.call_count == 2
 
-    def test_exponential_backoff_increases_correctly(self, temp_file_with_content):
-        """Backoff should increase exponentially: 1s, 2s, 4s, 8s, 16s"""
+    def test_exponential_backoff_with_jitter(self, temp_file_with_content):
+        """Backoff should increase exponentially with jitter when no Retry-After header"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
         with patch('review_file.OpenAI') as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
+            # Mock response with no retry-after header
             mock_response = MagicMock()
+            mock_response.headers = {}
+            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+
+            with patch('review_file.time.sleep') as mock_sleep, \
+                 patch('review_file.random.uniform', return_value=0.0):
+                with pytest.raises(RetryExhaustedError):
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model"
+                    )
+
+                # Extract sleep durations from calls
+                sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+                # With jitter=0, should be [1.0, 2.0, 4.0, 8.0, 16.0]
+                assert len(sleep_calls) == MAX_RETRIES
+                assert sleep_calls[0] == 1.0
+                assert sleep_calls[1] == 2.0
+                assert sleep_calls[2] == 4.0
+                assert sleep_calls[3] == 8.0
+                assert sleep_calls[4] == 16.0
+
+    def test_retry_after_header_respected(self, temp_file_with_content):
+        """When server sends Retry-After header, use that instead of backoff"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            # Mock response with retry-after header
+            mock_response = MagicMock()
+            mock_response.headers = {'retry-after': '5'}
             mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
 
             with patch('review_file.time.sleep') as mock_sleep:
@@ -655,12 +695,44 @@ class TestRetryAndBackoff:
                         model="test-model"
                     )
 
-                # Extract sleep durations from calls
+                # All waits should be 5.0 (from Retry-After header)
                 sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
-                # Should be [1.0, 2.0, 4.0, 8.0, 16.0]
                 assert len(sleep_calls) == MAX_RETRIES
-                assert sleep_calls[0] == 1.0
-                assert sleep_calls[1] == 2.0
-                assert sleep_calls[2] == 4.0
-                assert sleep_calls[3] == 8.0
-                assert sleep_calls[4] == 16.0
+                for wait in sleep_calls:
+                    assert wait == 5.0
+
+
+class TestParseRetryAfter:
+    """Test RFC 7231 Retry-After header parsing"""
+
+    def test_integer_seconds(self):
+        assert parse_retry_after("5") == 5.0
+
+    def test_float_seconds(self):
+        assert parse_retry_after("2.5") == 2.5
+
+    def test_zero_seconds(self):
+        assert parse_retry_after("0") == 0.0
+
+    def test_http_date_in_future(self):
+        # Generate an HTTP-date 10 seconds in the future
+        future = time.time() + 10
+        date_str = email.utils.formatdate(timeval=future, usegmt=True)
+        result = parse_retry_after(date_str)
+        assert result is not None
+        # Should be approximately 10 seconds (allow 2s tolerance for test execution)
+        assert 8.0 <= result <= 12.0
+
+    def test_http_date_in_past(self):
+        # Generate an HTTP-date 10 seconds in the past
+        past = time.time() - 10
+        date_str = email.utils.formatdate(timeval=past, usegmt=True)
+        result = parse_retry_after(date_str)
+        # Should clamp to 0
+        assert result == 0.0
+
+    def test_garbage_returns_none(self):
+        assert parse_retry_after("not-a-date-or-number") is None
+
+    def test_empty_string_returns_none(self):
+        assert parse_retry_after("") is None
