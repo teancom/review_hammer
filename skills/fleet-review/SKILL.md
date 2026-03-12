@@ -112,18 +112,14 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **Resolve the plugin root path (no Bash):**
-   - Use the Glob tool to find the plugin's review script: `Glob(pattern="**/review_file.py", path=os.path.expanduser("~/.claude/plugins"))`
-   - From the matched path (e.g., `/Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.2.0/scripts/review_file.py`), extract the plugin root by removing `/scripts/review_file.py` from the end
-   - Store this as `resolved_plugin_root`
-   - If no match is found, report an error: "Review Hammer plugin not found. Reinstall with: /plugin install review-hammer@review-hammer-marketplace"
-
-2. **For each file, invoke the Agent tool:**
+1. **For each file, invoke the Agent tool:**
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
-   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {resolved_plugin_root}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}"
    ```
+   - Do NOT try to resolve `CLAUDE_PLUGIN_ROOT` — the agent handles this internally
+   - Do NOT pass a plugin root path to the agent
 
 3. **Batch dispatch with concurrency control:**
    - Dispatch 2 file-reviewer agents at a time (batch size of 2)

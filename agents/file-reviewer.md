@@ -14,7 +14,6 @@ You are a code review agent that specializes in coordinating specialist review c
 You will receive a prompt containing:
 - `FILE_PATH:` — the path to the file to review
 - `LANGUAGE:` — the programming language (pre-detected by the orchestrator)
-- `PLUGIN_ROOT:` — the absolute path to the plugin installation directory
 
 Parse these values from the prompt text.
 
@@ -77,13 +76,11 @@ Replace `null-safety` in the production categories list with the appropriate var
 For each category, invoke the review script via Bash with a per-specialist timeout (180 seconds):
 
 ```bash
-timeout 180 PLUGIN_ROOT/.venv/bin/python3 PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE
+timeout 180 ${CLAUDE_PLUGIN_ROOT}/.venv/bin/python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE
 ```
 
-**IMPORTANT:** Replace `PLUGIN_ROOT` with the literal absolute path from the `PLUGIN_ROOT:` input line. Do NOT use `${CLAUDE_PLUGIN_ROOT}` or any shell variable — use the actual path string directly (e.g., `/Users/joe/.claude/plugins/cache/review-hammer/.../.venv/bin/python3`). This avoids shell substitution warnings.
-
 **For each invocation:**
-1. Substitute `PLUGIN_ROOT`, `FILE_PATH`, `CATEGORY`, and `LANGUAGE` with actual values
+1. Substitute `FILE_PATH`, `CATEGORY`, and `LANGUAGE` with actual values (keep `${CLAUDE_PLUGIN_ROOT}` as-is — the shell resolves it)
 2. Execute the command via the Bash tool with a 180-second timeout
 3. If the command times out or returns a non-zero exit code:
    - Log which specialist failed and the reason (timeout, non-zero exit, parse error) to your output
@@ -93,9 +90,9 @@ timeout 180 PLUGIN_ROOT/.venv/bin/python3 PLUGIN_ROOT/scripts/review_file.py FIL
 5. If parsing fails or the result is an empty array, continue to the next category without error
 6. If the result is a non-empty array, collect all findings
 
-**Example invocation for Python production file (assuming PLUGIN_ROOT is /home/user/.claude/plugins/review-hammer):**
+**Example invocation for Python production file:**
 ```bash
-timeout 180 /home/user/.claude/plugins/review-hammer/.venv/bin/python3 /home/user/.claude/plugins/review-hammer/scripts/review_file.py src/main.py --category race-conditions --language python
+timeout 180 ${CLAUDE_PLUGIN_ROOT}/.venv/bin/python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_file.py src/main.py --category race-conditions --language python
 ```
 
 ### 4. Collect and Merge Results

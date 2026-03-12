@@ -23,11 +23,6 @@ if echo "$COMMAND" | grep -q "review_file.py"; then
   approve "review_file.py auto-approved by Review Hammer plugin"
 fi
 
-# Auto-approve any command referencing the plugin cache path
-if echo "$COMMAND" | grep -q "review-hammer"; then
-  approve "review-hammer path auto-approved by Review Hammer plugin"
-fi
-
 # Auto-approve git diff commands (used for large-repo scoping)
 if echo "$COMMAND" | grep -qE '^git diff( |$)'; then
   approve "git diff auto-approved by Review Hammer plugin"
