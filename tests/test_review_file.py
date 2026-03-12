@@ -354,7 +354,9 @@ class TestReviewFile:
                 # Verify OpenAI was called correctly
                 mock_openai_class.assert_called_once_with(
                     api_key="test-key",
-                    base_url="https://api.example.com/"
+                    base_url="https://api.example.com/",
+                    timeout=120.0,
+                    max_retries=0
                 )
 
                 # Verify chat.completions.create was called

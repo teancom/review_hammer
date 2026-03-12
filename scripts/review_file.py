@@ -9,10 +9,17 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
-from openai import OpenAI, APIConnectionError, RateLimitError
+from openai import OpenAI, APIConnectionError, RateLimitError, APITimeoutError, AuthenticationError
+
+
+# Retry configuration
+MAX_RETRIES = 5
+INITIAL_BACKOFF = 1.0  # seconds
+MAX_BACKOFF = 60.0  # seconds
 
 
 EXTENSION_MAP = {
@@ -188,13 +195,19 @@ def parse_findings(raw_response: str) -> list:
     return []
 
 
+class RetryExhaustedError(Exception):
+    """Raised when all retries are exhausted."""
+    pass
+
+
 def review_file(
     file_path: str,
     category: str,
     language: str,
     api_key: str,
     base_url: str,
-    model: str
+    model: str,
+    timeout: float = 120.0
 ) -> list:
     """
     Orchestrate code review for a single file.
@@ -203,7 +216,7 @@ def review_file(
     1. Read the file
     2. Prepend line numbers
     3. Load and extract category prompt
-    4. Call OpenAI API
+    4. Call OpenAI API with retry logic
     5. Parse findings
     6. Return findings
 
@@ -214,6 +227,7 @@ def review_file(
         api_key: OpenAI API key
         base_url: OpenAI-compatible API base URL
         model: Model to use
+        timeout: API call timeout in seconds (default 120)
 
     Returns:
         List of findings (each is a dict with lines, severity, category, etc.)
@@ -221,7 +235,8 @@ def review_file(
     Raises:
         FileNotFoundError: If file not found
         ValueError: If category not found in template
-        APIConnectionError: If API call fails
+        AuthenticationError: If API authentication fails (no retry)
+        RetryExhaustedError: If all retries exhausted
     """
     # Read the file
     with open(file_path, 'r') as f:
@@ -237,26 +252,79 @@ def review_file(
     # Extract category prompt
     system_prompt = extract_category_prompt(str(template_path), category)
 
-    # Call OpenAI API
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    # Create client with timeout and max_retries=0 (we handle retries ourselves)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": numbered_source}
-        ],
-        temperature=0,
-        max_retries=3
-    )
+    # Retry loop with exponential backoff
+    backoff = INITIAL_BACKOFF
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": numbered_source}
+                ],
+                temperature=0
+            )
 
-    # Extract response content
-    raw_response = response.choices[0].message.content
+            # Extract response content
+            raw_response = response.choices[0].message.content
 
-    # Parse findings
-    findings = parse_findings(raw_response)
+            # Parse findings
+            findings = parse_findings(raw_response)
 
-    return findings
+            return findings
+
+        except AuthenticationError as e:
+            # Do not retry authentication errors
+            print(f"Error: Authentication failed: {e}", file=sys.stderr)
+            raise
+
+        except RateLimitError as e:
+            # Retry on rate limit
+            if attempt < MAX_RETRIES:
+                print(
+                    f"Rate limit error (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                    f"Retrying in {backoff:.1f}s...",
+                    file=sys.stderr
+                )
+                time.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            else:
+                print(f"Error: Rate limit error after {MAX_RETRIES} retries: {e}", file=sys.stderr)
+                raise RetryExhaustedError(f"Rate limit error after {MAX_RETRIES} retries")
+
+        except APITimeoutError as e:
+            # Retry on timeout
+            if attempt < MAX_RETRIES:
+                print(
+                    f"Timeout error (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                    f"Retrying in {backoff:.1f}s...",
+                    file=sys.stderr
+                )
+                time.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            else:
+                print(f"Error: Timeout after {MAX_RETRIES} retries: {e}", file=sys.stderr)
+                raise RetryExhaustedError(f"Timeout after {MAX_RETRIES} retries")
+
+        except APIConnectionError as e:
+            # Retry on connection error
+            if attempt < MAX_RETRIES:
+                print(
+                    f"Connection error (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                    f"Retrying in {backoff:.1f}s...",
+                    file=sys.stderr
+                )
+                time.sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF)
+            else:
+                print(f"Error: Connection failed after {MAX_RETRIES} retries: {e}", file=sys.stderr)
+                raise RetryExhaustedError(f"Connection failed after {MAX_RETRIES} retries")
+
+    # This should not be reached, but raise if somehow loop exits normally
+    raise RetryExhaustedError("Unexpected end of retry loop")
 
 
 def main():
@@ -294,6 +362,12 @@ def main():
         default=None,
         help="Model to use (or set REVIEWERS_MODEL env var)"
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="API call timeout in seconds (default: 120)"
+    )
 
     args = parser.parse_args()
 
@@ -325,10 +399,11 @@ def main():
             language=language,
             api_key=api_key,
             base_url=base_url,
-            model=model
+            model=model,
+            timeout=args.timeout
         )
 
-        # Output findings as JSON
+        # Output findings as JSON (even if empty due to retries exhausted)
         print(json.dumps(findings, indent=2))
 
     except FileNotFoundError as e:
@@ -339,8 +414,13 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    except (APIConnectionError, RateLimitError) as e:
-        print(f"Error: API error: {e}", file=sys.stderr)
+    except AuthenticationError as e:
+        print(f"Error: Authentication failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    except RetryExhaustedError as e:
+        # All retries exhausted: output empty findings and exit with code 2
+        print("[]")
         sys.exit(2)
 
     except Exception as e:
