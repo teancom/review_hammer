@@ -51,6 +51,14 @@ The plugin implements a multi-agent code review pipeline:
 - Agent restricted to Bash-only tools, explicitly forbidden from running debug commands
 - No venv needed — `uv run` handles dependencies via PEP 723 inline metadata
 
+## Releasing Changes
+When changing any plugin-facing file (skills, agents, hooks, scripts), bump the version FIRST:
+1. Bump `version` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (must match)
+2. Make your changes
+3. Commit everything together
+
+Do the version bump before editing other files so examples and references stay consistent.
+
 ## Conventions
 - Prompt templates use `## category-name` headings for section extraction
 - Findings JSON schema: `{lines, severity, category, description, impact, confidence}`
