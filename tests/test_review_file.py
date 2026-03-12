@@ -11,7 +11,6 @@ Verifies:
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -339,57 +338,51 @@ Hope this helps!
 class TestReviewFile:
     """Test end-to-end review orchestration (AC2.1 mocked)"""
 
-    def test_review_file_orchestration(self):
+    def test_review_file_orchestration(self, temp_file_with_content):
         """Should orchestrate file review with mocked API"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
+        temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        try:
-            mock_response = MagicMock()
-            mock_response.choices[0].message.content = json.dumps([
-                {"lines": [1, 2], "severity": "medium", "category": "logic-errors"}
-            ])
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([
+            {"lines": [1, 2], "severity": "medium", "category": "logic-errors"}
+        ])
 
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                mock_client.chat.completions.create.return_value = mock_response
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
 
-                result = review_file(
-                    file_path=temp_file,
-                    category="logic-errors",
-                    language="generic",
-                    api_key="test-key",
-                    base_url="https://api.example.com/",
-                    model="test-model"
-                )
+            result = review_file(
+                file_path=temp_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model"
+            )
 
-                # Verify OpenAI was called correctly
-                mock_openai_class.assert_called_once_with(
-                    api_key="test-key",
-                    base_url="https://api.example.com/",
-                    timeout=120.0,
-                    max_retries=0
-                )
+            # Verify OpenAI was called correctly
+            mock_openai_class.assert_called_once_with(
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                timeout=120.0,
+                max_retries=0
+            )
 
-                # Verify chat.completions.create was called
-                create_call = mock_client.chat.completions.create.call_args
-                assert create_call is not None
+            # Verify chat.completions.create was called
+            create_call = mock_client.chat.completions.create.call_args
+            assert create_call is not None
 
-                # Check messages
-                messages = create_call.kwargs["messages"]
-                assert messages[0]["role"] == "system"
-                assert messages[1]["role"] == "user"
-                assert "1| def foo():" in messages[1]["content"]
+            # Check messages
+            messages = create_call.kwargs["messages"]
+            assert messages[0]["role"] == "system"
+            assert messages[1]["role"] == "user"
+            assert "1| def foo():" in messages[1]["content"]
 
-                # Verify result
-                assert isinstance(result, list)
-                assert len(result) == 1
-                assert result[0]["lines"] == [1, 2]
-
-        finally:
-            os.unlink(temp_file)
+            # Verify result
+            assert isinstance(result, list)
+            assert len(result) == 1
+            assert result[0]["lines"] == [1, 2]
 
     def test_review_file_missing_file(self):
         """Should raise FileNotFoundError if file not found"""
@@ -403,275 +396,114 @@ class TestReviewFile:
                 model="test-model"
             )
 
-    def test_review_file_missing_category(self):
+    def test_review_file_missing_category(self, temp_file_with_content):
         """Should raise ValueError if category not found in template"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("code")
-            temp_file = f.name
+        temp_file = temp_file_with_content("code")
 
-        try:
-            with patch('review_file.OpenAI'):
-                with pytest.raises(ValueError, match="not found"):
-                    review_file(
-                        file_path=temp_file,
-                        category="nonexistent-category",
-                        language="generic",
-                        api_key="test-key",
-                        base_url="https://api.example.com/",
-                        model="test-model"
-                    )
-        finally:
-            os.unlink(temp_file)
-
-    def test_review_file_uses_correct_prompt_path(self):
-        """Should resolve prompt template path relative to script"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("code")
-            temp_file = f.name
-
-        try:
-            mock_response = MagicMock()
-            mock_response.choices[0].message.content = "[]"
-
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                mock_client.chat.completions.create.return_value = mock_response
-
+        with patch('review_file.OpenAI'):
+            with pytest.raises(ValueError, match="not found"):
                 review_file(
                     file_path=temp_file,
-                    category="logic-errors",
+                    category="nonexistent-category",
                     language="generic",
                     api_key="test-key",
                     base_url="https://api.example.com/",
                     model="test-model"
                 )
 
-                # Verify the call succeeded (template was found)
-                assert mock_client.chat.completions.create.called
+    def test_review_file_uses_correct_prompt_path(self, temp_file_with_content):
+        """Should resolve prompt template path relative to script"""
+        temp_file = temp_file_with_content("code")
 
-        finally:
-            os.unlink(temp_file)
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=temp_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model"
+            )
+
+            # Verify the call succeeded (template was found)
+            assert mock_client.chat.completions.create.called
 
 
 class TestMainCLI:
     """Test CLI entry point with argument validation (AC2.3)"""
 
-    def test_main_missing_api_key_exits_with_code_1(self, capsys):
+    def test_main_missing_api_key_exits_with_code_1(self, capsys, temp_file_with_content):
         """main() should exit with code 1 and print error to stderr when API key is missing"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
+        temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        try:
-            # Mock sys.argv with no API key set in environment
-            test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
+        # Mock sys.argv with no API key set in environment
+        test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
 
-            with patch.dict(os.environ, {}, clear=True):
-                # Remove REVIEWERS_API_KEY from environment
-                os.environ.pop("REVIEWERS_API_KEY", None)
+        with patch.dict(os.environ, {}, clear=True):
+            # Remove REVIEWERS_API_KEY from environment
+            os.environ.pop("REVIEWERS_API_KEY", None)
 
-                with patch('sys.argv', test_argv):
-                    from review_file import main
-                    with pytest.raises(SystemExit) as exc_info:
-                        main()
+            with patch('sys.argv', test_argv):
+                from review_file import main
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
-                    # Should exit with code 1
-                    assert exc_info.value.code == 1
+                # Should exit with code 1
+                assert exc_info.value.code == 1
 
-            # Check that error was printed to stderr
-            captured = capsys.readouterr()
-            assert "API key is required" in captured.err
-            assert "REVIEWERS_API_KEY" in captured.err
+        # Check that error was printed to stderr
+        captured = capsys.readouterr()
+        assert "API key is required" in captured.err
+        assert "REVIEWERS_API_KEY" in captured.err
 
-        finally:
-            os.unlink(temp_file)
-
-    def test_main_with_api_key_env_var_succeeds(self):
+    def test_main_with_api_key_env_var_succeeds(self, temp_file_with_content):
         """main() should succeed when REVIEWERS_API_KEY environment variable is set"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
+        temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        try:
-            mock_response = MagicMock()
-            mock_response.choices[0].message.content = "[]"
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
 
-            test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
+        test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
 
-            with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
-                with patch('sys.argv', test_argv):
-                    with patch('review_file.OpenAI') as mock_openai_class:
-                        mock_client = MagicMock()
-                        mock_openai_class.return_value = mock_client
-                        mock_client.chat.completions.create.return_value = mock_response
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch('sys.argv', test_argv):
+                with patch('review_file.OpenAI') as mock_openai_class:
+                    mock_client = MagicMock()
+                    mock_openai_class.return_value = mock_client
+                    mock_client.chat.completions.create.return_value = mock_response
 
-                        from review_file import main
-                        # Should not raise SystemExit
-                        main()
+                    from review_file import main
+                    # Should not raise SystemExit
+                    main()
 
-                        # Verify OpenAI was called
-                        assert mock_openai_class.called
-
-        finally:
-            os.unlink(temp_file)
+                    # Verify OpenAI was called
+                    assert mock_openai_class.called
 
 
 class TestRetryAndBackoff:
     """Test retry and backoff logic for error handling (AC6.1)"""
 
-    def test_rate_limit_error_triggers_retry_and_exhausts(self):
+    def test_rate_limit_error_triggers_retry_and_exhausts(self, temp_file_with_content):
         """RateLimitError should trigger retry and eventually raise RetryExhaustedError"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
+        temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        try:
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                # Simulate persistent rate limit error on all attempts
-                mock_response = MagicMock()
-                mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
-
-                with patch('review_file.time.sleep') as mock_sleep:
-                    with pytest.raises(RetryExhaustedError, match="after 5 retries"):
-                        review_file(
-                            file_path=temp_file,
-                            category="logic-errors",
-                            language="generic",
-                            api_key="test-key",
-                            base_url="https://api.example.com/",
-                            model="test-model"
-                        )
-
-                    # Should have called sleep MAX_RETRIES times (1, 2, 4, 8, 16 seconds)
-                    assert mock_sleep.call_count == MAX_RETRIES
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_authentication_error_raises_immediately_without_retry(self):
-        """AuthenticationError should raise immediately without retry"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
-
-        try:
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                mock_response = MagicMock()
-                mock_client.chat.completions.create.side_effect = AuthenticationError("Invalid API key", response=mock_response, body={})
-
-                with patch('review_file.time.sleep') as mock_sleep:
-                    with pytest.raises(AuthenticationError):
-                        review_file(
-                            file_path=temp_file,
-                            category="logic-errors",
-                            language="generic",
-                            api_key="test-key",
-                            base_url="https://api.example.com/",
-                            model="test-model"
-                        )
-
-                    # Should NOT have called sleep at all
-                    assert mock_sleep.call_count == 0
-
-                    # Should have been called only once (no retries)
-                    assert mock_client.chat.completions.create.call_count == 1
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_api_timeout_error_triggers_retry(self):
-        """APITimeoutError should trigger retry and eventually raise RetryExhaustedError"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
-
-        try:
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                mock_request = MagicMock()
-                mock_client.chat.completions.create.side_effect = APITimeoutError(request=mock_request)
-
-                with patch('review_file.time.sleep') as mock_sleep:
-                    with pytest.raises(RetryExhaustedError, match="after 5 retries"):
-                        review_file(
-                            file_path=temp_file,
-                            category="logic-errors",
-                            language="generic",
-                            api_key="test-key",
-                            base_url="https://api.example.com/",
-                            model="test-model"
-                        )
-
-                    # Should have called sleep MAX_RETRIES times
-                    assert mock_sleep.call_count == MAX_RETRIES
-                    # Should have attempted MAX_RETRIES + 1 times total
-                    assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_api_connection_error_triggers_retry(self):
-        """APIConnectionError should trigger retry and eventually raise RetryExhaustedError"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
-
-        try:
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                mock_request = MagicMock()
-                mock_client.chat.completions.create.side_effect = APIConnectionError(message="Connection refused", request=mock_request)
-
-                with patch('review_file.time.sleep') as mock_sleep:
-                    with pytest.raises(RetryExhaustedError, match="after 5 retries"):
-                        review_file(
-                            file_path=temp_file,
-                            category="logic-errors",
-                            language="generic",
-                            api_key="test-key",
-                            base_url="https://api.example.com/",
-                            model="test-model"
-                        )
-
-                    # Should have called sleep MAX_RETRIES times
-                    assert mock_sleep.call_count == MAX_RETRIES
-                    # Should have attempted MAX_RETRIES + 1 times total
-                    assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
-
-        finally:
-            os.unlink(temp_file)
-
-    def test_successful_response_on_second_attempt_after_transient_error(self):
-        """Should successfully return findings on second attempt after transient error"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
-
-        try:
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            # Simulate persistent rate limit error on all attempts
             mock_response = MagicMock()
-            mock_response.choices[0].message.content = json.dumps([
-                {"lines": [1, 2], "severity": "high", "category": "logic-errors"}
-            ])
+            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
 
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                # Fail first time with timeout, succeed second time
-                mock_request = MagicMock()
-                mock_client.chat.completions.create.side_effect = [
-                    APITimeoutError(request=mock_request),
-                    mock_response
-                ]
-
-                with patch('review_file.time.sleep') as mock_sleep:
-                    result = review_file(
+            with patch('review_file.time.sleep') as mock_sleep:
+                with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                    review_file(
                         file_path=temp_file,
                         category="logic-errors",
                         language="generic",
@@ -680,53 +512,155 @@ class TestRetryAndBackoff:
                         model="test-model"
                     )
 
-                    # Should have succeeded on second attempt
-                    assert isinstance(result, list)
-                    assert len(result) == 1
-                    assert result[0]["lines"] == [1, 2]
+                # Should have called sleep MAX_RETRIES times (1, 2, 4, 8, 16 seconds)
+                assert mock_sleep.call_count == MAX_RETRIES
 
-                    # Should have slept once (between attempts)
-                    assert mock_sleep.call_count == 1
+    def test_authentication_error_raises_immediately_without_retry(self, temp_file_with_content):
+        """AuthenticationError should raise immediately without retry"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
 
-                    # Should have called create twice (first failed, second succeeded)
-                    assert mock_client.chat.completions.create.call_count == 2
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_client.chat.completions.create.side_effect = AuthenticationError("Invalid API key", response=mock_response, body={})
 
-        finally:
-            os.unlink(temp_file)
+            with patch('review_file.time.sleep') as mock_sleep:
+                with pytest.raises(AuthenticationError):
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model"
+                    )
 
-    def test_exponential_backoff_increases_correctly(self):
+                # Should NOT have called sleep at all
+                assert mock_sleep.call_count == 0
+
+                # Should have been called only once (no retries)
+                assert mock_client.chat.completions.create.call_count == 1
+
+    def test_api_timeout_error_triggers_retry(self, temp_file_with_content):
+        """APITimeoutError should trigger retry and eventually raise RetryExhaustedError"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_request = MagicMock()
+            mock_client.chat.completions.create.side_effect = APITimeoutError(request=mock_request)
+
+            with patch('review_file.time.sleep') as mock_sleep:
+                with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model"
+                    )
+
+                # Should have called sleep MAX_RETRIES times
+                assert mock_sleep.call_count == MAX_RETRIES
+                # Should have attempted MAX_RETRIES + 1 times total
+                assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
+
+    def test_api_connection_error_triggers_retry(self, temp_file_with_content):
+        """APIConnectionError should trigger retry and eventually raise RetryExhaustedError"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_request = MagicMock()
+            mock_client.chat.completions.create.side_effect = APIConnectionError(message="Connection refused", request=mock_request)
+
+            with patch('review_file.time.sleep') as mock_sleep:
+                with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model"
+                    )
+
+                # Should have called sleep MAX_RETRIES times
+                assert mock_sleep.call_count == MAX_RETRIES
+                # Should have attempted MAX_RETRIES + 1 times total
+                assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
+
+    def test_successful_response_on_second_attempt_after_transient_error(self, temp_file_with_content):
+        """Should successfully return findings on second attempt after transient error"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([
+            {"lines": [1, 2], "severity": "high", "category": "logic-errors"}
+        ])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            # Fail first time with timeout, succeed second time
+            mock_request = MagicMock()
+            mock_client.chat.completions.create.side_effect = [
+                APITimeoutError(request=mock_request),
+                mock_response
+            ]
+
+            with patch('review_file.time.sleep') as mock_sleep:
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="generic",
+                    api_key="test-key",
+                    base_url="https://api.example.com/",
+                    model="test-model"
+                )
+
+                # Should have succeeded on second attempt
+                assert isinstance(result, list)
+                assert len(result) == 1
+                assert result[0]["lines"] == [1, 2]
+
+                # Should have slept once (between attempts)
+                assert mock_sleep.call_count == 1
+
+                # Should have called create twice (first failed, second succeeded)
+                assert mock_client.chat.completions.create.call_count == 2
+
+    def test_exponential_backoff_increases_correctly(self, temp_file_with_content):
         """Backoff should increase exponentially: 1s, 2s, 4s, 8s, 16s"""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-            f.write("def foo():\n    return 42")
-            temp_file = f.name
+        temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        try:
-            with patch('review_file.OpenAI') as mock_openai_class:
-                mock_client = MagicMock()
-                mock_openai_class.return_value = mock_client
-                mock_response = MagicMock()
-                mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
 
-                with patch('review_file.time.sleep') as mock_sleep:
-                    with pytest.raises(RetryExhaustedError):
-                        review_file(
-                            file_path=temp_file,
-                            category="logic-errors",
-                            language="generic",
-                            api_key="test-key",
-                            base_url="https://api.example.com/",
-                            model="test-model"
-                        )
+            with patch('review_file.time.sleep') as mock_sleep:
+                with pytest.raises(RetryExhaustedError):
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model"
+                    )
 
-                    # Extract sleep durations from calls
-                    sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
-                    # Should be [1.0, 2.0, 4.0, 8.0, 16.0]
-                    assert len(sleep_calls) == MAX_RETRIES
-                    assert sleep_calls[0] == 1.0
-                    assert sleep_calls[1] == 2.0
-                    assert sleep_calls[2] == 4.0
-                    assert sleep_calls[3] == 8.0
-                    assert sleep_calls[4] == 16.0
-
-        finally:
-            os.unlink(temp_file)
+                # Extract sleep durations from calls
+                sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+                # Should be [1.0, 2.0, 4.0, 8.0, 16.0]
+                assert len(sleep_calls) == MAX_RETRIES
+                assert sleep_calls[0] == 1.0
+                assert sleep_calls[1] == 2.0
+                assert sleep_calls[2] == 4.0
+                assert sleep_calls[3] == 8.0
+                assert sleep_calls[4] == 16.0
