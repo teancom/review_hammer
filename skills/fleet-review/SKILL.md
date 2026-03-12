@@ -112,10 +112,11 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **Resolve the plugin root path first:**
-   - Run: `printenv CLAUDE_PLUGIN_ROOT` via Bash to get the concrete absolute path
-   - Store this as `resolved_plugin_root` (e.g., `/Users/joe/.claude/plugins/cache/...`)
-   - Pass this to each agent so agents use literal paths, never shell variables like `${CLAUDE_PLUGIN_ROOT}`
+1. **Resolve the plugin root path (no Bash):**
+   - Use the Glob tool to find the plugin's review script: `Glob(pattern="**/review_file.py", path=os.path.expanduser("~/.claude/plugins"))`
+   - From the matched path (e.g., `/Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.2.0/scripts/review_file.py`), extract the plugin root by removing `/scripts/review_file.py` from the end
+   - Store this as `resolved_plugin_root`
+   - If no match is found, report an error: "Review Hammer plugin not found. Reinstall with: /plugin install review-hammer@review-hammer-marketplace"
 
 2. **For each file, invoke the Agent tool:**
    ```
@@ -125,18 +126,11 @@ Dispatch specialized reviewer agents with concurrency control:
    ```
 
 3. **Batch dispatch with concurrency control:**
-   - Read the `REVIEWERS_MAX_CONCURRENT` environment variable (default: 2)
-   - Divide the file list into batches of size `REVIEWERS_MAX_CONCURRENT`
-   - Dispatch each batch simultaneously
+   - Dispatch 2 file-reviewer agents at a time (batch size of 2)
    - Wait for all agents in a batch to complete before dispatching the next batch
-   - Rate limiting is handled by the `review_file.py` backend and Phase 6 safeguards
    - Collect the JSON output from each agent as it completes
-   - Example: If reviewing 25 files with `REVIEWERS_MAX_CONCURRENT=2`:
-     - Batch 1: Files 1-2 (dispatch all, wait for all to complete)
-     - Batch 2: Files 3-4 (dispatch all, wait for all to complete)
-     - ... continue until all batches complete
 
-3. **Expected output from each agent:**
+4. **Expected output from each agent:**
    - JSON structure with fields like `findings`, `file`, `language`, `is_test`, `categories_run`, `categories_with_findings`
    - Each finding includes: `lines` (array of [start_line, end_line]), `severity`, `category`, `description`, `impact`, `confidence`
    - Per-specialist error handling: If a specialist times out or fails for a file, that file's review is noted as incomplete but other files continue processing
