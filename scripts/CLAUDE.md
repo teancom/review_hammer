@@ -11,7 +11,8 @@ component that talks to the external LLM.
 - **Exposes**: `review_file()` function and CLI entry point
 - **Guarantees**:
   - Output is always a JSON array of findings (or `[]` on failure)
-  - Retries transient errors (rate-limit, timeout, connection) up to 5 times with exponential backoff
+  - Retries transient errors (rate-limit, timeout, connection) up to 5 times
+  - Respects RFC 7231 Retry-After header (seconds or HTTP-date), falls back to jittered exponential backoff
   - Never retries authentication errors
   - Exit code 2 + empty JSON `[]` on exhausted retries
   - Line numbers prepended as `{n}| {line}` format before sending to API
@@ -22,11 +23,13 @@ component that talks to the external LLM.
 
 ## Dependencies
 - **Uses**: `prompts/{language}.md` templates (sibling directory), OpenAI SDK
-- **Used by**: `agents/file-reviewer.md` (invoked via Bash)
+- **Runtime**: `uv run` with PEP 723 inline script metadata (no venv required)
+- **Used by**: `agents/file-reviewer.md` (invoked via `uv run` in Bash)
 - **Boundary**: Does not know about orchestration, batching, or deduplication
 
 ## Key Decisions
-- Manual retry loop (not SDK retries): Gives control over backoff and error classification
+- Manual retry loop (not SDK retries): Gives control over backoff, Retry-After, and error classification
+- PEP 723 inline deps: Eliminates venv bootstrap, `uv` caches the environment automatically
 - Temperature 0: Deterministic reviews for consistency
 - Markdown fence extraction: Handles LLMs that wrap JSON in code fences
 
@@ -36,5 +39,6 @@ component that talks to the external LLM.
 - Language detection uses EXTENSION_MAP; unknown extensions fall back to "generic"
 
 ## Key Files
-- `review_file.py` - All logic (detection, prompting, API calls, parsing)
-- `requirements.txt` - Python dependencies (openai, pytest)
+- `review_file.py` - All logic (detection, prompting, API calls, retry, parsing)
+- `ensure-venv.sh` - Legacy venv bootstrap (unused since v0.7.0, kept for dev)
+- `requirements.txt` - Python dependencies for dev venv (openai, pytest)
