@@ -17,21 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 
 @pytest.fixture
-def temp_python_file(tmp_path):
-    """Fixture that creates a temporary Python file.
-
-    Args:
-        tmp_path: pytest's built-in tmp_path fixture
-
-    Returns:
-        Path object to a temporary .py file
-    """
-    temp_file = tmp_path / "temp_script.py"
-    temp_file.write_text("# Temporary file for testing\n")
-    return str(temp_file)
-
-
-@pytest.fixture
 def temp_file_with_content(tmp_path):
     """Fixture that creates a temporary file with custom content.
 
