@@ -1,0 +1,17 @@
+{
+  "description": "Review Hammer hooks",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
+            "statusMessage": "Checking Review Hammer configuration"
+          }
+        ]
+      }
+    ]
+  }
+}
