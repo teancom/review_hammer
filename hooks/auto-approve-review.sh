@@ -23,6 +23,11 @@ if echo "$COMMAND" | grep -q "review_file.py"; then
   approve "review_file.py auto-approved by Review Hammer plugin"
 fi
 
+# Auto-approve printenv for resolving plugin root path
+if echo "$COMMAND" | grep -qE '^printenv CLAUDE_PLUGIN_ROOT$'; then
+  approve "printenv auto-approved by Review Hammer plugin"
+fi
+
 # Auto-approve git diff commands (used for large-repo scoping)
 if echo "$COMMAND" | grep -qE '^git diff( |$)'; then
   approve "git diff auto-approved by Review Hammer plugin"

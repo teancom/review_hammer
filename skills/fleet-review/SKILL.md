@@ -112,14 +112,19 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **For each file, invoke the Agent tool:**
+1. **Resolve the plugin root path first:**
+   - Run: `printenv CLAUDE_PLUGIN_ROOT` via Bash to get the concrete absolute path
+   - Store this as `resolved_plugin_root` (e.g., `/Users/joe/.claude/plugins/cache/...`)
+   - Pass this to each agent so agents use literal paths, never shell variables like `${CLAUDE_PLUGIN_ROOT}`
+
+2. **For each file, invoke the Agent tool:**
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
-   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {resolved_plugin_root}"
    ```
 
-2. **Batch dispatch with concurrency control:**
+3. **Batch dispatch with concurrency control:**
    - Read the `REVIEWERS_MAX_CONCURRENT` environment variable (default: 2)
    - Divide the file list into batches of size `REVIEWERS_MAX_CONCURRENT`
    - Dispatch each batch simultaneously
