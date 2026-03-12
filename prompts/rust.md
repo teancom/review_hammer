@@ -143,7 +143,7 @@ Look for:
 - Builder patterns with incomplete state
 
 **DO NOT REPORT:**
-- Immutable by default (val not var)
+- Immutable by default (`let` bindings, not `let mut`)
 - Properly synchronized mutable state with Mutex/RwLock
 - Correct use of ownership and borrowing rules
 - Interior mutability with Cell/RefCell for single-threaded mutation
