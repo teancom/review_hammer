@@ -237,6 +237,7 @@ Look for:
 - Tests for serialization/deserialization (exact format matters)
 - Snapshot tests (intentionally brittle)
 - Protocol/trait contract tests
+- Direct construction of `#[repr(transparent)]` or tuple structs with `pub` fields (e.g., `Sample(4096)`) — this IS the public API, not an implementation detail
 
 ---
 
@@ -248,7 +249,7 @@ Look for:
 - No test for empty input (empty Vec, empty String, None)
 - No test for boundary values (0, -1, max values, single items)
 - No test for error/panic paths
-- No test for concurrent execution (in concurrent code)
+- No test for concurrent execution (in code that is `Send + Sync` or uses interior mutability)
 - No test for timeout and cancellation
 - Single test case where multiple behaviors exist
 
@@ -258,3 +259,4 @@ Look for:
 - Exploratory/example tests not meant to be exhaustive
 - Tests for trivial functions where edge cases don't differ
 - Compile-time checked constraints
+- Missing concurrent tests for types that are `!Sync` — thread safety is the caller's responsibility via `Arc<Mutex<T>>`, not the type's
