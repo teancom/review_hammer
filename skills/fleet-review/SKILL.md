@@ -112,14 +112,20 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **For each file, invoke the Agent tool:**
+1. **Bootstrap the plugin environment (one-time setup):**
+   - Run via Bash (auto-approved by hook): `${CLAUDE_PLUGIN_ROOT}/scripts/ensure-venv.sh`
+   - This creates the Python venv and installs dependencies if needed
+   - **Capture `CLAUDE_PLUGIN_ROOT`:** Also run `printenv CLAUDE_PLUGIN_ROOT` to get the resolved absolute path
+   - If the env var is not set, check for the plugin at: `~/.claude/plugins/cache/review-hammer-marketplace/review-hammer/` and use the highest version directory
+   - Store this resolved path as `plugin_root` — you will pass it to every agent
+
+2. **For each file, invoke the Agent tool:**
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
-   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}"
    ```
-   - Do NOT try to resolve `CLAUDE_PLUGIN_ROOT` — the agent handles this internally
-   - Do NOT pass a plugin root path to the agent
+   - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
 
 3. **Batch dispatch with concurrency control:**
    - Dispatch 2 file-reviewer agents at a time (batch size of 2)
