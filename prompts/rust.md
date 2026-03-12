@@ -81,6 +81,7 @@ Look for:
 - Proper use of scope guards and `drop()` function
 - Resources explicitly leaked for valid reasons with documentation
 - Scoped thread spawning with join guarantee
+- Complementary struct fields (e.g., insert_at / drop_at) where the constructor or method logic guarantees exactly one is set — verify the invariant before reporting
 
 ---
 
@@ -123,10 +124,13 @@ Look for:
 **DO NOT REPORT:**
 - `unwrap()` on known-safe operations (compile-time guarantees)
 - Proper `?` operator use for error propagation
+- Intentional `let _ = channel.send()` in spawned/background tasks (fire-and-forget is correct when the receiver may be dropped during shutdown)
 - Intentional `let _ = operation()` with clear documentation
+- `.ok()` on channel sends in shutdown/cleanup paths
 - `expect()` with clear message about why it cannot fail
 - Top-level `panic!` on startup errors
 - `unwrap()` in test code for setup
+- `unwrap()` in `examples/` directory code (example code panicking on bad input is standard practice)
 
 ---
 
@@ -136,7 +140,7 @@ Look for:
 
 Look for:
 - Mutable state shared without proper synchronization primitives
-- Struct fields with invalid state combinations
+- Struct fields with invalid state combinations that can cause logic errors at the SAME layer
 - Mutation in functions advertised as immutable
 - Multiple mutable references in unsafe code without synchronization
 - Struct initialization leaving required fields uninitialized
@@ -149,6 +153,9 @@ Look for:
 - Interior mutability with Cell/RefCell for single-threaded mutation
 - Frozen struct fields (immutable data structures)
 - Properly initialized struct instances
+- Protocol/message structs with role-specific optional fields (e.g., server commands vs client commands with different payloads — all-optional is standard protocol wrapper design)
+- Serde-discriminated enums where a command/type field determines which variant fields are valid — validation belongs at the deserialization or handler layer, not the struct definition
+- Complementary struct fields where the constructor/method logic guarantees exactly one is populated (e.g., dual schedule fields where `plan()` always sets one)
 
 ---
 
@@ -189,6 +196,7 @@ Look for:
 - Property-based tests (quickcheck) where framework handles assertions
 - Tests verifying side effects through mocking
 - Benchmark tests
+- `#[ignore]` tests with placeholder comments (e.g., "Requires running server", "Will implement") — these are intentional stubs, not missing assertions
 
 ---
 
