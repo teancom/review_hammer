@@ -8,8 +8,11 @@ Review Hammer dispatches category-specialized code review agents to any OpenAI-c
 
 ## Installation
 
-```bash
-claude plugin install teancom/review_hammer
+First, add the marketplace, then install the plugin:
+
+```
+/plugin marketplace add teancom/review_hammer
+/plugin install review-hammer@review-hammer-marketplace
 ```
 
 ## Configuration
