@@ -112,12 +112,11 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **Bootstrap the plugin environment (one-time setup):**
-   - Run via Bash (auto-approved by hook): `${CLAUDE_PLUGIN_ROOT}/scripts/ensure-venv.sh`
-   - This creates the Python venv and installs dependencies if needed
-   - **Capture `CLAUDE_PLUGIN_ROOT`:** Also run `printenv CLAUDE_PLUGIN_ROOT` to get the resolved absolute path
-   - If the env var is not set, check for the plugin at: `~/.claude/plugins/cache/review-hammer-marketplace/review-hammer/` and use the highest version directory
-   - Store this resolved path as `plugin_root` — you will pass it to every agent
+1. **Resolve the plugin root path:**
+   - Use the Bash tool to run: `ls -d ~/.claude/plugins/cache/review-hammer-marketplace/review-hammer/*/ 2>/dev/null | sort -V | tail -1`
+   - This finds the highest-versioned installed plugin directory
+   - Strip any trailing slash/newline and store as `plugin_root`
+   - If no result, report error: "Review Hammer plugin not installed. Run: /plugin install review-hammer@review-hammer-marketplace"
 
 2. **For each file, invoke the Agent tool:**
    ```

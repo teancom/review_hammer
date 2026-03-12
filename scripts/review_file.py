@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "openai>=1.0.0",
+# ]
+# ///
 """
 review_file.py - Code review specialist orchestrator.
 

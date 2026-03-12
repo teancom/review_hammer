@@ -66,14 +66,14 @@ Otherwise it is a production file.
 For each category, run this exact command pattern via Bash:
 
 ```
-timeout 180 PLUGIN_ROOT/.venv/bin/python3 PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE
+timeout 180 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE
 ```
 
 Replace `PLUGIN_ROOT`, `FILE_PATH`, `CATEGORY`, and `LANGUAGE` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.
 
-**Example** (if PLUGIN_ROOT is `/Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.5.0`):
+**Example** (if PLUGIN_ROOT is `/Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0`):
 ```
-timeout 180 /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.5.0/.venv/bin/python3 /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.5.0/scripts/review_file.py src/main.py --category race-conditions --language python
+timeout 180 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python
 ```
 
 **For each invocation:**
