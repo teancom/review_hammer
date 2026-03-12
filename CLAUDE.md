@@ -17,7 +17,7 @@ Last verified: 2026-03-11
 - `scripts/` - Python CLI backend (review_file.py, ensure-venv.sh)
 - `prompts/` - Language-specific prompt templates (12 languages + generic)
 - `agents/` - Haiku agent definitions (file-reviewer)
-- `skills/` - User-facing skill definitions (/fleet-review orchestrator)
+- `skills/` - User-facing skill definitions (/review-hammer orchestrator)
 - `hooks/` - Session-start validation + PreToolUse auto-approve hook
 - `tests/` - Unit tests for review_file.py
 - `docs/` - Design and implementation plans
@@ -35,7 +35,7 @@ Last verified: 2026-03-11
 
 ## Architecture
 The plugin implements a multi-agent code review pipeline:
-1. User invokes `/fleet-review <path>` (skill)
+1. User invokes `/review-hammer <path>` (skill)
 2. Skill enumerates files via Glob (no Bash), detects languages, resolves plugin root from cache directory
 3. Skill dispatches Haiku file-reviewer agents in batches of 3
 4. Each file-reviewer agent runs 5-6 specialist categories via `uv run review_file.py`

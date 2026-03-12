@@ -1,12 +1,12 @@
 ---
-name: fleet-review
+name: review-hammer
 description: High-precision code review using specialized LLM agents. Use when user wants to review code for bugs across a file, directory, or repo. Dispatches category-specialized reviewers and presents a deduplicated, severity-ranked report.
 user-invocable: true
 disable-model-invocation: true
 argument-hint: <file-or-directory-path>
 ---
 
-# Fleet Review Orchestrator Skill
+# Review Hammer Orchestrator Skill
 
 This skill orchestrates a high-precision code review pipeline. When invoked, it enumerates source files, detects languages, dispatches specialized Haiku `file-reviewer` agents in parallel, collects findings, performs an Opus judge pass for deduplication and verification, and presents a final severity-ranked report.
 
