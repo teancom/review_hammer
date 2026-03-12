@@ -58,14 +58,33 @@ When the target is a directory:
    - If no supported files are found, report: "No supported language files found in {path}. Nothing to review." (AC1.4)
    - Stop execution
 
-5. **Confirm large repos:**
-   - If more than 100 files are found, calculate estimated API calls:
-     - **Production mode:** files × 6 (one file-reviewer agent + potential re-reviews)
-     - **Test mode:** files × 5
-   - Present the file count and estimated API calls to the user
-   - Ask: "This would require approximately {count} API calls. Continue? (yes/no)"
-   - If the user declines, suggest narrowing the scope (AC6.3)
-   - If confirmed, proceed to Phase 3
+5. **Confirm large repos (AC6.3):**
+   - If more than 100 files are found, present a confirmation flow to the user:
+     - Calculate estimated API calls: `file_count × 6` (assuming 6 categories per file)
+     - Format message:
+       ```
+       This target contains {file_count} reviewable files, which will require approximately {api_calls} API calls.
+
+       Options:
+       - Proceed with all {file_count} files
+       - Review only files changed in git (git diff)
+       - Narrow scope - specify a subdirectory or file pattern
+       - Cancel
+       ```
+     - Use the AskUserQuestion tool to get the user's decision
+   - **If "Proceed with all":** Continue to Phase 3 with the full file list
+   - **If "Review only files changed in git":**
+     - Run `git diff --name-only` to get changed files
+     - Filter to supported extensions only
+     - Re-enumerate the file list with these changes
+     - Proceed to Phase 3 with the filtered list
+   - **If "Narrow scope":**
+     - Ask the user: "Enter a subdirectory path or file pattern to review:"
+     - Re-enumerate files matching the user's scope
+     - If no files found, report and stop
+     - Proceed to Phase 3 with the narrowed file list
+   - **If "Cancel":** Stop execution and do not proceed
+   - If 100 or fewer files are found initially, skip this confirmation and proceed directly to Phase 3
 
 ## Phase 3: Language Detection
 
@@ -93,7 +112,7 @@ For each enumerated file:
 
 ## Phase 4: Agent Dispatch
 
-Dispatch specialized reviewer agents in parallel:
+Dispatch specialized reviewer agents with concurrency control:
 
 1. **For each file, invoke the Agent tool:**
    ```
@@ -102,14 +121,22 @@ Dispatch specialized reviewer agents in parallel:
    prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}"
    ```
 
-2. **Parallel execution:**
-   - Dispatch multiple agents simultaneously (up to all files at once)
+2. **Batch dispatch with concurrency control:**
+   - Read the `REVIEWERS_MAX_CONCURRENT` environment variable (default: 3)
+   - Divide the file list into batches of size `REVIEWERS_MAX_CONCURRENT`
+   - Dispatch each batch simultaneously
+   - Wait for all agents in a batch to complete before dispatching the next batch
    - Rate limiting is handled by the `review_file.py` backend and Phase 6 safeguards
    - Collect the JSON output from each agent as it completes
+   - Example: If reviewing 25 files with `REVIEWERS_MAX_CONCURRENT=3`:
+     - Batch 1: Files 1-3 (dispatch all, wait for all to complete)
+     - Batch 2: Files 4-6 (dispatch all, wait for all to complete)
+     - ... continue until all batches complete
 
 3. **Expected output from each agent:**
    - JSON structure with fields like `findings`, `file`, `language`, `is_test`, `categories_run`, `categories_with_findings`
    - Each finding includes: `lines` (array of [start_line, end_line]), `severity`, `category`, `description`, `impact`, `confidence`
+   - Per-specialist error handling: If a specialist times out or fails for a file, that file's review is noted as incomplete but other files continue processing
 
 ## Phase 5: Opus Judge Pass
 
