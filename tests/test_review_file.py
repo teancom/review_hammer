@@ -17,9 +17,6 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-# Add scripts directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
 from review_file import (
     prepend_line_numbers,
     extract_category_prompt,
@@ -323,6 +320,20 @@ Hope this helps!
         assert result == []
         captured = capsys.readouterr()
         assert "Warning" in captured.err
+        assert "not an array" in captured.err
+
+    def test_json_not_array_in_markdown_fences(self, capsys):
+        """JSON object in markdown fences (not array) should warn and return empty list"""
+        response = """```json
+{"key": "value", "other": "data"}
+```"""
+
+        result = parse_findings(response)
+
+        assert result == []
+        captured = capsys.readouterr()
+        assert "Warning" in captured.err
+        assert "not an array" in captured.err
 
 
 class TestReviewFile:
@@ -438,6 +449,69 @@ class TestReviewFile:
 
                 # Verify the call succeeded (template was found)
                 assert mock_client.chat.completions.create.called
+
+        finally:
+            os.unlink(temp_file)
+
+
+class TestMainCLI:
+    """Test CLI entry point with argument validation (AC2.3)"""
+
+    def test_main_missing_api_key_exits_with_code_1(self, capsys):
+        """main() should exit with code 1 and print error to stderr when API key is missing"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            # Mock sys.argv with no API key set in environment
+            test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
+
+            with patch.dict(os.environ, {}, clear=True):
+                # Remove REVIEWERS_API_KEY from environment
+                os.environ.pop("REVIEWERS_API_KEY", None)
+
+                with patch('sys.argv', test_argv):
+                    from review_file import main
+                    with pytest.raises(SystemExit) as exc_info:
+                        main()
+
+                    # Should exit with code 1
+                    assert exc_info.value.code == 1
+
+            # Check that error was printed to stderr
+            captured = capsys.readouterr()
+            assert "API key is required" in captured.err
+            assert "REVIEWERS_API_KEY" in captured.err
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_main_with_api_key_env_var_succeeds(self):
+        """main() should succeed when REVIEWERS_API_KEY environment variable is set"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write("def foo():\n    return 42")
+            temp_file = f.name
+
+        try:
+            mock_response = MagicMock()
+            mock_response.choices[0].message.content = "[]"
+
+            test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
+
+            with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+                with patch('sys.argv', test_argv):
+                    with patch('review_file.OpenAI') as mock_openai_class:
+                        mock_client = MagicMock()
+                        mock_openai_class.return_value = mock_client
+                        mock_client.chat.completions.create.return_value = mock_response
+
+                        from review_file import main
+                        # Should not raise SystemExit
+                        main()
+
+                        # Verify OpenAI was called
+                        assert mock_openai_class.called
 
         finally:
             os.unlink(temp_file)

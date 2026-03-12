@@ -8,6 +8,7 @@ Sends a single file + category to an OpenAI-compatible API and returns structure
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -174,12 +175,15 @@ def parse_findings(raw_response: str) -> list:
         result = json.loads(response)
         if isinstance(result, list):
             return result
+        else:
+            # JSON is valid but not an array
+            print("Warning: LLM response is JSON but not an array, returning empty findings", file=sys.stderr)
+            return []
     except json.JSONDecodeError:
         pass
 
     # Try to extract JSON from markdown fences
     if "```json" in response or "```" in response:
-        import re
         # Look for ```json...``` or ```...```
         match = re.search(r'```(?:json)?\s*\n(.*?)\n```', response, re.DOTALL)
         if match:
@@ -187,6 +191,10 @@ def parse_findings(raw_response: str) -> list:
                 result = json.loads(match.group(1))
                 if isinstance(result, list):
                     return result
+                else:
+                    # JSON is valid but not an array
+                    print("Warning: LLM response is JSON but not an array, returning empty findings", file=sys.stderr)
+                    return []
             except json.JSONDecodeError:
                 pass
 
