@@ -1,6 +1,6 @@
 # Review Hammer
 
-Last verified: 2026-03-11
+Last verified: 2026-03-12
 
 ## Tech Stack
 - Python 3.10+ (scripts, tests)
@@ -11,6 +11,7 @@ Last verified: 2026-03-11
 
 ## Commands
 - `uv run scripts/review_file.py FILE --category CATEGORY` - Run a single review
+- `uv run scripts/test_corpus.py` - Run review calibration tests against corpus files
 - `.venv/bin/pytest tests/` - Run unit tests (dev venv, not used by plugin)
 
 ## Project Structure
@@ -19,7 +20,7 @@ Last verified: 2026-03-11
 - `agents/` - Haiku agent definitions (file-reviewer)
 - `skills/` - User-facing skill definitions (/review-hammer orchestrator)
 - `hooks/` - Session-start validation + PreToolUse auto-approve hook
-- `tests/` - Unit tests for review_file.py
+- `tests/` - Unit tests for review_file.py + calibration corpus (`tests/corpus/`)
 - `docs/` - Design and implementation plans
 - `.claude-plugin/` - Plugin manifest (plugin.json) and marketplace catalog (marketplace.json)
 
@@ -64,6 +65,8 @@ Do the version bump before editing other files so examples and references stay c
 - Findings JSON schema: `{lines, severity, category, description, impact, confidence}`
 - Exit codes: 0=success, 1=config/input error, 2=retries exhausted
 - Z.AI GLM-5 concurrency limit: 3 (match agent batch size)
+- Corpus metadata schema: `{type, category, language, description, expect_empty}` where type is "clean"|"bug"|"adversarial"
+- Corpus files live at `tests/corpus/{language}/` with paired `.ext` + `.json` files sharing the same stem
 
 ## Boundaries
 - Safe to edit: `scripts/`, `prompts/`, `agents/`, `skills/`, `tests/`

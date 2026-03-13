@@ -1,6 +1,6 @@
 # Scripts - Review File Backend
 
-Last verified: 2026-03-11
+Last verified: 2026-03-12
 
 ## Purpose
 Provides the Python CLI that sends a single file + specialist category to an
@@ -40,5 +40,6 @@ component that talks to the external LLM.
 
 ## Key Files
 - `review_file.py` - All logic (detection, prompting, API calls, retry, parsing)
+- `test_corpus.py` - Calibration test runner; discovers `tests/corpus/` cases and validates review results against expected outcomes
 - `ensure-venv.sh` - Legacy venv bootstrap (unused since v0.7.0, kept for dev)
 - `requirements.txt` - Python dependencies for dev venv (openai, pytest)
