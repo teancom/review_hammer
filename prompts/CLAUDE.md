@@ -24,7 +24,7 @@ code reviewer for a specific language and bug category.
 - Generic template as fallback: Covers unknown file extensions with language-agnostic patterns
 
 ## Invariants
-- Every language template must have all 11 category headings (6 production + 5 test)
+- Every language template must have all 11 category headings (6 production + 4 test + 1 test-suggestions)
 - Heading format must be exactly `## category-name` (used for extraction)
 - Template filenames must match language keys in EXTENSION_MAP + "generic"
 
