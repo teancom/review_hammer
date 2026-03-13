@@ -736,3 +736,187 @@ class TestParseRetryAfter:
 
     def test_empty_string_returns_none(self):
         assert parse_retry_after("") is None
+
+
+class TestTestContext:
+    """Test --test-context flag functionality (AC3.1, AC5.3)"""
+
+    def test_test_context_included_in_user_message(self, temp_file_with_content):
+        """review_file() should include test file content in the user message"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+        test_file = temp_file_with_content("def test_foo():\n    assert foo() == 42", suffix=".test.py")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="test-suggestions",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=[test_file]
+            )
+
+            # Verify the user message includes both source and test content
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "def foo():" in user_message
+            assert "def test_foo():" in user_message
+            assert f"Existing test file: {test_file}" in user_message
+
+    def test_test_context_file_truncation(self, temp_file_with_content):
+        """Test context files exceeding 500 lines should be truncated with warning"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+        # Create a test file with 600 lines
+        test_content = "\n".join([f"# line {i}" for i in range(1, 601)])
+        test_file = temp_file_with_content(test_content, suffix=".test.py")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=[test_file]
+            )
+
+            # Verify the user message contains truncation notice
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "truncated (100 lines omitted)" in user_message
+
+    def test_test_context_nonexistent_file_warning(self, temp_file_with_content, capsys):
+        """When test context file doesn't exist, warning should be printed and review proceeds"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=["/nonexistent/test/file.py"]
+            )
+
+            # Verify warning was printed to stderr
+            captured = capsys.readouterr()
+            assert "Warning: Test context file not found" in captured.err
+            assert "/nonexistent/test/file.py" in captured.err
+
+            # Verify the review still proceeded (user message has source)
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "def foo():" in user_message
+
+    def test_multiple_test_context_files(self, temp_file_with_content):
+        """Multiple test context files should all be included in user message"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+        test_file_1 = temp_file_with_content("def test_foo():\n    pass", suffix="_1.test.py")
+        test_file_2 = temp_file_with_content("def test_bar():\n    pass", suffix="_2.test.py")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=[test_file_1, test_file_2]
+            )
+
+            # Verify both test files are in the user message
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "def test_foo():" in user_message
+            assert "def test_bar():" in user_message
+            assert f"Existing test file: {test_file_1}" in user_message
+            assert f"Existing test file: {test_file_2}" in user_message
+
+    def test_no_test_context_with_test_suggestions_category(self, temp_file_with_content):
+        """When no test context and category is test-suggestions, include 'no test files' notice"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="test-suggestions",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=None
+            )
+
+            # Verify the user message includes the "no test files" notice
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "No existing test files found for this source file." in user_message
+
+    def test_no_test_context_with_other_category(self, temp_file_with_content):
+        """When no test context and category is not test-suggestions, no extra notice"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch('review_file.OpenAI') as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=None
+            )
+
+            # Verify no "no test files" notice for non-test-suggestions categories
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "No existing test files found" not in user_message
+            # But source should still be there
+            assert "def foo():" in user_message
