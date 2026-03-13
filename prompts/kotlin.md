@@ -228,3 +228,34 @@ Look for:
 - Contract tests for interfaces
 
 ---
+
+## test-suggestions
+
+You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.
+
+**Output format:** Same JSON array as other categories. In the `description` field, explain WHAT to test and WHY it matters — not how to implement the test. The `category` field must be `"test-suggestions"`.
+
+**IMPORTANT:** Return at most 3 suggestions. If fewer than 3 are warranted, return fewer. If nothing is worth suggesting, return `[]`.
+
+**WHAT TO SUGGEST** (in priority order):
+
+1. **State transition coverage** — Code with distinct states where transitions between states are not tested. Focus on transitions that change observable behavior.
+2. **Error path coverage** — Exception handling paths (try/catch, checked exceptions, custom exceptions) with no corresponding error-case tests. Prioritize paths where the exception transforms data or has side effects.
+3. **Business logic boundaries** — Domain-specific boundary conditions where behavior changes (thresholds, limits, mode switches). The boundary must be in THIS code, not in a called function.
+4. **Integration seam tests** — Boundaries between components where one side makes assumptions about the other's behavior (interface implementations, callback contracts, event listeners). Focus on assumptions that could silently diverge.
+5. **Property-based test opportunities** — Functions with clear invariants: roundtrip encode/decode, idempotency, commutativity. Only suggest when the invariant is non-trivial and not already covered.
+
+**DO NOT SUGGEST:**
+
+- Tests that validate Kotlin language semantics (null safety, smart casts, extension functions)
+- Tests for trivial property access with no custom getter/setter logic
+- Tests for `data class` generated `equals`/`hashCode`/`toString`/`copy`
+- Tests for `sealed class`/`enum class` exhaustiveness (compiler checks this)
+- Tests that merely exercise code for coverage without meaningful assertions
+- Tests for Ktor/Spring Boot annotations on simple endpoints
+- Tests for framework-provided behavior (Exposed/Room DAO methods, coroutine builders)
+- Tests for pure data classes with no methods
+- Tests already covered in the existing test file(s) provided as context
+- Tests that only verify a function "doesn't throw" without checking the result
+
+---
