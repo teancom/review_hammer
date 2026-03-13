@@ -69,7 +69,8 @@ def find_source_file(meta_path: Path) -> Path | None:
     return None
 
 
-def run_review(source_path: Path, category: str, language: str, script_dir: Path) -> tuple[list | None, str | None]:
+def run_review(source_path: Path, category: str, language: str, script_dir: Path,
+               test_file_path: Path | None = None) -> tuple[list | None, str | None]:
     """Run review_file.py and return (findings, error)."""
     cmd = [
         "uv", "run", str(script_dir / "review_file.py"),
@@ -77,6 +78,8 @@ def run_review(source_path: Path, category: str, language: str, script_dir: Path
         "--category", category,
         "--language", language,
     ]
+    if test_file_path is not None:
+        cmd.extend(["--test-context", str(test_file_path)])
     try:
         result = subprocess.run(
             cmd,
@@ -178,8 +181,20 @@ def main():
             print(f"  WARNING: metadata language '{meta['language']}' does not match "
                   f"source extension '{source_path.suffix}' (expected '{expected_lang}')")
 
+        # Resolve optional test file for test-context
+        test_file_path = None
+        if "test_file" in meta:
+            test_file_path = meta_path.parent / meta["test_file"]
+            if not test_file_path.exists():
+                error = f"Test file not found: {meta['test_file']}"
+                print(f"  ERROR: {error}")
+                results.append({"case": str(rel_path), "status": "error", "reason": error})
+                continue
+            print(f"  Test context: {meta['test_file']}")
+
         # Run review
-        findings, error = run_review(source_path, meta["category"], meta["language"], script_dir)
+        findings, error = run_review(source_path, meta["category"], meta["language"], script_dir,
+                                     test_file_path=test_file_path)
         if error:
             print(f"  ERROR: {error}")
             results.append({
