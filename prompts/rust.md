@@ -266,3 +266,35 @@ Look for:
 - Tests for trivial functions where edge cases don't differ
 - Compile-time checked constraints
 - Missing concurrent tests for types that are `!Sync` — thread safety is the caller's responsibility via `Arc<Mutex<T>>`, not the type's
+
+---
+
+## test-suggestions
+
+You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.
+
+**Output format:** Same JSON array as other categories. In the `description` field, explain WHAT to test and WHY it matters — not how to implement the test. The `category` field must be `"test-suggestions"`.
+
+**IMPORTANT:** Return at most 3 suggestions. If fewer than 3 are warranted, return fewer. If nothing is worth suggesting, return `[]`.
+
+**WHAT TO SUGGEST** (in priority order):
+
+1. **State transition coverage** — Code with distinct states (enums, flags, mode fields) where transitions between states are not tested. Focus on transitions that change observable behavior.
+2. **Error path coverage** — Error handling paths (`match` on `Result`/`Option`, `?` propagation, custom error types) with no corresponding error-case tests. Prioritize paths where the error transforms data or has side effects.
+3. **Business logic boundaries** — Domain-specific boundary conditions where behavior changes (thresholds, limits, mode switches). The boundary must be in THIS code, not in a called function.
+4. **Integration seam tests** — Boundaries between components where one side makes assumptions about the other's behavior (trait implementations, callback contracts, message formats). Focus on assumptions that could silently diverge.
+5. **Property-based test opportunities** — Functions with clear invariants: roundtrip encode/decode, idempotency, commutativity. Only suggest when the invariant is non-trivial and not already covered.
+
+**DO NOT SUGGEST:**
+
+- Tests that validate Rust language semantics (`Option` can be `None`, `Vec` can be empty, `Result` can be `Err`)
+- Tests that duplicate what the type system or borrow checker enforces (type conversions, ownership rules, lifetime correctness)
+- Tests for trivial `Default`, `From`, `Into`, `Display`, or `Debug` implementations on newtypes or simple structs
+- Tests for trivial getters/setters/accessors with no logic
+- Tests that merely exercise code for coverage without meaningful assertions
+- Tests for `Clone`, `PartialEq`, `Hash`, or other derived trait implementations
+- Tests for framework-provided behavior (`serde` serialization of simple structs, `clap` argument parsing)
+- Tests for pure data structures with no logic (struct definitions, enum variants with no methods)
+- Tests already covered in the existing test file(s) provided as context
+- Tests for `#[cfg(test)]` module scaffolding or test helper functions
+- Tests that only verify a function "doesn't panic" without checking the result
