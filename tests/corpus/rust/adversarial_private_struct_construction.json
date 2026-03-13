@@ -1,0 +1,7 @@
+{
+    "type": "adversarial",
+    "category": "brittle-tests",
+    "language": "rust",
+    "description": "Tests directly construct structs with private fields, bypassing constructor invariants (clamped range, sorted order) — resembles repr-transparent exclusion but tests implementation details on invalid state",
+    "expect_empty": false
+}

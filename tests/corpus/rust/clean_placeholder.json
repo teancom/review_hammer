@@ -1,0 +1,7 @@
+{
+    "type": "clean",
+    "category": "logic-errors",
+    "language": "rust",
+    "description": "Trivial arithmetic function with no issues — placeholder for runner validation",
+    "expect_empty": true
+}

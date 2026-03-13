@@ -1,0 +1,7 @@
+{
+    "type": "clean",
+    "category": "brittle-tests",
+    "language": "rust",
+    "description": "Direct construction of #[repr(transparent)] pub tuple structs in tests — excluded by prompts/rust.md brittle-tests section",
+    "expect_empty": true
+}

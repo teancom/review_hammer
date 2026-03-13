@@ -1,0 +1,7 @@
+{
+    "type": "bug",
+    "category": "race-conditions",
+    "language": "rust",
+    "description": "Mutable static variable accessed from multiple threads without synchronization — undefined behavior due to data race",
+    "expect_empty": false
+}

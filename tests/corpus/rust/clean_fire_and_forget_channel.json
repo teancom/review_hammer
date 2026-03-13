@@ -1,0 +1,7 @@
+{
+    "type": "clean",
+    "category": "error-handling",
+    "language": "rust",
+    "description": "Fire-and-forget channel sends in spawned background tasks — excluded by prompts/rust.md error-handling section",
+    "expect_empty": true
+}

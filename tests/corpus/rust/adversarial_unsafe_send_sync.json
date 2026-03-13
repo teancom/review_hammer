@@ -1,0 +1,7 @@
+{
+    "type": "adversarial",
+    "category": "race-conditions",
+    "language": "rust",
+    "description": "unsafe impl Send + Sync on non-COM connection pool with raw pointers and no synchronization — resembles MTA COM exclusion but is a real race condition",
+    "expect_empty": false
+}

@@ -1,0 +1,7 @@
+{
+    "type": "adversarial",
+    "category": "error-handling",
+    "language": "rust",
+    "description": "let _ = file.write() in audit log handler silently discards I/O errors causing data loss — resembles fire-and-forget channel exclusion but is a real bug",
+    "expect_empty": false
+}
