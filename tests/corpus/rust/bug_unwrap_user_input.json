@@ -1,0 +1,7 @@
+{
+    "type": "bug",
+    "category": "error-handling",
+    "language": "rust",
+    "description": "Multiple unwrap() calls on user-controlled network input in production handler — will panic on missing headers, invalid UTF-8, malformed JSON, or missing fields",
+    "expect_empty": false
+}
