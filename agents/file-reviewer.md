@@ -45,12 +45,11 @@ Otherwise it is a production file.
 5. `error-handling`
 6. `state-management`
 
-**Test files (5 categories):**
+**Test files (4 categories):**
 1. `testing-nothing`
 2. `missing-assertions`
 3. `over-mocking`
 4. `brittle-tests`
-5. `missing-edge-cases`
 
 **Language-specific safety category:**
 
