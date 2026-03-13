@@ -1,0 +1,7 @@
+{
+    "type": "bug",
+    "category": "test-suggestions",
+    "language": "rust",
+    "description": "Config parser with error types, state transitions, and boundaries — zero tests exist",
+    "expect_empty": false
+}
