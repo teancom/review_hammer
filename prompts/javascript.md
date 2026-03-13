@@ -160,6 +160,7 @@ Look for:
 - Tests that verify error handling behavior
 - Test setup/fixtures (not assertions themselves)
 - Parameterized test runs
+- Tests that replicate a function defined inline in HTML (e.g., inside a `<script>` tag) to verify the algorithm — when the production code can't be imported, replicating it in the test is the correct approach
 
 ---
 

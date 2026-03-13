@@ -56,10 +56,12 @@ Look for:
 **DO NOT REPORT:**
 - Rust's type system prevents data races in safe code
 - `Arc<Mutex<T>>` patterns (correct concurrent ownership)
-- Channel-based concurrency (proper message passing)
+- Channel-based concurrency (proper message passing) — includes bounded channels where a send before the receiver starts is buffered, not lost
 - Atomic operations with correct memory ordering
 - `unsafe` code with documented synchronization invariants
 - `static` immutable data (no race condition possible)
+- `unsafe impl Send + Sync` for COM objects initialized with `COINIT_MULTITHREADED` (MTA) — MTA provides internal synchronization for concurrent access
+- Global state guarded by atomics/`OnceLock`/`Mutex` where spawned threads check current state dynamically — a reset-then-check pattern is sound if the check reads the latest value
 
 ---
 
@@ -82,6 +84,8 @@ Look for:
 - Resources explicitly leaked for valid reasons with documentation
 - Scoped thread spawning with join guarantee
 - Complementary struct fields (e.g., insert_at / drop_at) where the constructor or method logic guarantees exactly one is set — verify the invariant before reporting
+- `static` variables in application-lifetime processes (desktop apps, servers) — process exit cleans up OS resources (sockets, file handles); no explicit `Drop` needed
+- COM `CoUninitialize` after `CoInitializeEx` returns `S_FALSE` — Microsoft docs require balancing every successful call including `S_FALSE`
 
 ---
 
@@ -127,6 +131,7 @@ Look for:
 - Intentional `let _ = channel.send()` in spawned/background tasks (fire-and-forget is correct when the receiver may be dropped during shutdown)
 - Intentional `let _ = operation()` with clear documentation
 - `.ok()` on channel sends in shutdown/cleanup paths
+- `let _ = mutex.lock()` for fire-and-forget updates (e.g., Discord RPC, logging) — mutex poisoning only occurs after a panic, which is already a catastrophic state
 - `expect()` with clear message about why it cannot fail
 - Top-level `panic!` on startup errors
 - `unwrap()` in test code for setup
@@ -149,6 +154,7 @@ Look for:
 **DO NOT REPORT:**
 - Immutable by default (`let` bindings, not `let mut`)
 - Properly synchronized mutable state with Mutex/RwLock
+- Mutex-guarded global state (`OnceLock<Mutex<T>>`, `static Mutex`) where callbacks read dynamically via the lock — overwriting the inner value is correct when readers always acquire the lock fresh
 - Correct use of ownership and borrowing rules
 - Interior mutability with Cell/RefCell for single-threaded mutation
 - Frozen struct fields (immutable data structures)
