@@ -208,6 +208,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
 
 - Compare findings across all agents and files
 - If two or more findings reference the same line range in the same file with similar descriptions, merge them
+- **Important:** Test suggestions have `category: "test-suggestions"` and should not be deduplicated against bug findings from other categories. Only deduplicate test suggestions against each other (same file, similar description).
 - For merged findings, create a `flagged_by` array listing which categories detected it:
   ```
   "flagged_by": ["logic-errors", "error-handling"]
@@ -223,6 +224,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
     - Attempt to locate the correct line numbers
     - If correction is possible, update the finding
     - If correction is impossible, discard the finding
+- For test suggestions: Verify test suggestion line references the same way as bug findings.
 
 ### 5c. False Positive Filtering (AC5.3 partial)
 
@@ -232,6 +234,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
   - Are there framework/library patterns that make this code safe?
   - Is the issue only theoretical or does it have real impact?
 - Remove findings that are clearly false positives
+- For test suggestions: Apply the DO NOT SUGGEST criteria from the prompt template. Remove suggestions for language-level trivia.
 
 ### 5d. Cross-File Pattern Detection (AC5.3)
 
@@ -240,6 +243,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
 - **Systemic patterns:** Report once with an affected file list instead of individually
   - Example: "Missing null checks in list iteration" → affected files: `service1.py`, `service2.py`, `handler.py`, ...
 - **Unique per-file findings:** Keep separate and report individually
+- **Test suggestions:** Treat separately from bug findings (do not group with systemic patterns from bug categories)
 
 ### 5e. Severity Ranking (AC5.4)
 
@@ -248,6 +252,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
   - **High**
   - **Medium**
 - Within the same severity level, sort by confidence (highest first)
+- Include test suggestions in the overall ranking, but present them in a separate report section (see Phase 6, Change 2)
 
 ## Phase 6: Report Formatting
 
@@ -258,7 +263,7 @@ Present the final report using this markdown template:
 
 **Target:** {target_path}
 **Files reviewed:** {total_file_count}
-**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium)
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
 
 ## Critical
 
@@ -304,6 +309,24 @@ Present the final report using this markdown template:
 ### [Finding Title]
 ...
 
+## Test Suggestions
+
+### [Suggestion Title]
+**File:** `path/to/file.py:123-125`
+**Severity:** high
+**Confidence:** 0.85
+
+[Description of what to test and why it matters]
+
+**Impact:** [What risk exists without this test]
+
+**Code context:**
+```{language}
+[actual code at those lines]
+```
+
+---
+
 ## Systemic Patterns
 
 ### [Pattern Name]
@@ -314,7 +337,7 @@ Present the final report using this markdown template:
 
 ---
 
-*Reviewed by {agent_count} specialists across {file_count} files. {false_positive_count} false positives removed.*
+*Reviewed by {agent_count} specialists across {file_count} files. {false_positive_count} false positives removed. {suggestion_count} test suggestions generated.*
 ```
 
 ## Acceptance Criteria Coverage
