@@ -1,0 +1,7 @@
+{
+    "type": "clean",
+    "category": "race-conditions",
+    "language": "rust",
+    "description": "unsafe impl Send + Sync for COM object initialized with COINIT_MULTITHREADED (MTA) — excluded by prompts/rust.md race-conditions section",
+    "expect_empty": true
+}
