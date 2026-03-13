@@ -23,6 +23,11 @@ if echo "$COMMAND" | grep -qE '^caffeinate '; then
   approve "caffeinate auto-approved by Review Hammer plugin"
 fi
 
+# Auto-approve printenv for reading configuration env vars
+if echo "$COMMAND" | grep -qE '^printenv REVIEWERS_'; then
+  approve "printenv auto-approved by Review Hammer plugin"
+fi
+
 # Auto-approve review_file.py invocations (via uv run or direct)
 if echo "$COMMAND" | grep -q "review_file.py"; then
   approve "review_file.py auto-approved by Review Hammer plugin"

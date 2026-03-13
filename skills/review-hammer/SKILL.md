@@ -112,18 +112,23 @@ For each enumerated file:
 
 Dispatch specialized reviewer agents with concurrency control:
 
-1. **Prevent system sleep (macOS):**
+1. **Read concurrency limit:**
+   - Run via Bash: `printenv REVIEWERS_MAX_CONCURRENT`
+   - If set, use that value as the batch size (must be 1-10; ignore invalid values)
+   - If not set or empty, default to **2**
+
+2. **Prevent system sleep (macOS):**
    - Run via Bash: `caffeinate -i -w $$ &`
    - This prevents idle sleep for the duration of the current process
    - Without this, macOS will suspend processes when the display sleeps, causing reviews to stall for hours
 
-2. **Resolve the plugin root path:**
+3. **Resolve the plugin root path:**
    - Use the Bash tool to run: `ls -d ~/.claude/plugins/cache/review-hammer-marketplace/review-hammer/*/ 2>/dev/null | sort -V | tail -1`
    - This finds the highest-versioned installed plugin directory
    - Strip any trailing slash/newline and store as `plugin_root`
    - If no result, report error: "Review Hammer plugin not installed. Run: /plugin install review-hammer@review-hammer-marketplace"
 
-3. **For each file, invoke the Agent tool:**
+4. **For each file, invoke the Agent tool:**
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
@@ -131,8 +136,8 @@ Dispatch specialized reviewer agents with concurrency control:
    ```
    - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
 
-4. **Batch dispatch with concurrency control:**
-   - Dispatch 2 file-reviewer agents at a time (batch size of 2)
+5. **Batch dispatch with concurrency control:**
+   - Dispatch agents in batches using the concurrency limit from step 1
    - Wait for all agents in a batch to complete before dispatching the next batch
    - Collect the JSON output from each agent as it completes
 
