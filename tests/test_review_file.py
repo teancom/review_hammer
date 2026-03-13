@@ -771,7 +771,7 @@ class TestTestContext:
             assert "def test_foo():" in user_message
             assert f"Existing test file: {test_file}" in user_message
 
-    def test_test_context_file_truncation(self, temp_file_with_content):
+    def test_test_context_file_truncation(self, temp_file_with_content, capsys):
         """Test context files exceeding 500 lines should be truncated with warning"""
         source_file = temp_file_with_content("def foo():\n    return 42")
         # Create a test file with 600 lines
@@ -800,6 +800,10 @@ class TestTestContext:
             create_call = mock_client.chat.completions.create.call_args
             user_message = create_call.kwargs["messages"][1]["content"]
             assert "truncated (100 lines omitted)" in user_message
+
+            # Verify the stderr warning message was printed
+            captured = capsys.readouterr()
+            assert "truncating to 500 lines" in captured.err
 
     def test_test_context_nonexistent_file_warning(self, temp_file_with_content, capsys):
         """When test context file doesn't exist, warning should be printed and review proceeds"""
