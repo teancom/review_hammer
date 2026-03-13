@@ -256,3 +256,32 @@ Look for:
 - Tests for data contracts and DTOs
 
 ---
+
+## test-suggestions
+
+You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.
+
+**Output format:** Same JSON array as other categories. In the `description` field, explain WHAT to test and WHY it matters — not how to implement the test. The `category` field must be `"test-suggestions"`.
+
+**IMPORTANT:** Return at most 3 suggestions. If fewer than 3 are warranted, return fewer. If nothing is worth suggesting, return `[]`.
+
+**WHAT TO SUGGEST** (in priority order):
+
+1. **State transition coverage** — Code with distinct states where transitions between states are not tested. Focus on transitions that change observable behavior.
+2. **Error path coverage** — Exception handling paths (try/catch, custom exceptions, Task failures) with no corresponding error-case tests. Prioritize paths where the exception transforms data or has side effects.
+3. **Business logic boundaries** — Domain-specific boundary conditions where behavior changes (thresholds, limits, mode switches). The boundary must be in THIS code, not in a called function.
+4. **Integration seam tests** — Boundaries between components where one side makes assumptions about the other's behavior (interface implementations, event handlers, delegate contracts). Focus on assumptions that could silently diverge.
+5. **Property-based test opportunities** — Functions with clear invariants: roundtrip serialize/deserialize, idempotency, commutativity. Only suggest when the invariant is non-trivial and not already covered.
+
+**DO NOT SUGGEST:**
+
+- Tests that validate C# language semantics (nullable reference types, pattern matching exhaustiveness, async/await behavior)
+- Tests for trivial auto-properties with no logic
+- Tests for record types' generated `Equals`/`GetHashCode`/`ToString`
+- Tests for simple POCO/DTO classes with no methods
+- Tests that merely exercise code for coverage without meaningful assertions
+- Tests for ASP.NET controller action routing or middleware registration
+- Tests for Entity Framework basic CRUD operations
+- Tests for framework-provided behavior (DI container resolution, configuration binding)
+- Tests already covered in the existing test file(s) provided as context
+- Tests that only verify a method "doesn't throw" without checking the result
