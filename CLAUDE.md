@@ -38,7 +38,7 @@ Last verified: 2026-03-12
 The plugin implements a multi-agent code review pipeline:
 1. User invokes `/review-hammer <path>` (skill)
 2. Skill enumerates files via Glob (no Bash), detects languages, resolves plugin root from cache directory
-3. Skill dispatches Haiku file-reviewer agents in batches of 3
+3. Skill dispatches Haiku file-reviewer agents in batches of 2
 4. Each file-reviewer agent runs 5-6 specialist categories via `uv run review_file.py`
 5. `review_file.py` sends file + category prompt to external LLM API, returns JSON findings
 6. Retry logic: respects RFC 7231 Retry-After header (seconds or HTTP-date), falls back to jittered exponential backoff
@@ -64,7 +64,7 @@ Do the version bump before editing other files so examples and references stay c
 - Prompt templates use `## category-name` headings for section extraction
 - Findings JSON schema: `{lines, severity, category, description, impact, confidence}`
 - Exit codes: 0=success, 1=config/input error, 2=retries exhausted
-- Z.AI GLM-5 concurrency limit: 3 (match agent batch size)
+- Z.AI GLM-5 concurrency limit: 2 (match agent batch size)
 - Corpus metadata schema: `{type, category, language, description, expect_empty}` where type is "clean"|"bug"|"adversarial"
 - Corpus files live at `tests/corpus/{language}/` with paired `.ext` + `.json` files sharing the same stem
 
