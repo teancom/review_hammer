@@ -31,6 +31,8 @@ fn test_connect_from_disconnected_succeeds() {
     // Now in Disconnected state, should be able to reconnect manually
     assert!(manager.connect().is_ok());
     assert_eq!(manager.state(), ConnectionState::Connecting);
+    // Verify that reconnection attempts counter is reset
+    assert_eq!(manager.reconnection_attempts, 0);
 }
 
 #[test]
