@@ -204,25 +204,6 @@ Look for:
 
 ---
 
-## missing-edge-cases
-
-**Focus:** Find tests that only cover the happy path, missing boundary conditions and error cases.
-
-Look for:
-- No test for empty input (empty list, empty string, null)
-- No test for boundary values (0, -1, MAX_INT, empty collection)
-- No test for error/exception paths
-- No test for concurrent/parallel execution (if the code is concurrent)
-- Single test case where multiple distinct behaviors exist
-
-**DO NOT REPORT:**
-- Edge cases that are impossible given the type system (e.g., null in a non-nullable type)
-- Edge cases handled by a called function that has its own tests
-- Exploratory/example tests that aren't meant to be exhaustive
-- Tests for trivial functions where edge cases don't meaningfully differ from happy path
-
----
-
 ## test-suggestions
 
 You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.

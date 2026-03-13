@@ -12,7 +12,7 @@ code reviewer for a specific language and bug category.
   - Each template has a preamble (output format instructions) and `## category-name` sections
   - Preamble defines the JSON finding schema (lines, severity, category, description, impact, confidence)
   - Production categories: race-conditions, null-safety (or variant), resource-leaks, logic-errors, error-handling, state-management
-  - Test categories: testing-nothing, missing-assertions, over-mocking, brittle-tests, missing-edge-cases
+  - Test categories: testing-nothing, missing-assertions, over-mocking, brittle-tests
 - **Expects**: Called via `extract_category_prompt()` in review_file.py which splits on `## ` headings
 
 ## Dependencies

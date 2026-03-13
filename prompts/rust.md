@@ -247,28 +247,6 @@ Look for:
 
 ---
 
-## missing-edge-cases
-
-**Focus:** Find tests covering only happy path, missing boundaries and error cases.
-
-Look for:
-- No test for empty input (empty Vec, empty String, None)
-- No test for boundary values (0, -1, max values, single items)
-- No test for error/panic paths
-- No test for concurrent execution (in code that is `Send + Sync` or uses interior mutability)
-- No test for timeout and cancellation
-- Single test case where multiple behaviors exist
-
-**DO NOT REPORT:**
-- Edge cases prevented by Rust's type system
-- Edge cases handled by called functions with their own tests
-- Exploratory/example tests not meant to be exhaustive
-- Tests for trivial functions where edge cases don't differ
-- Compile-time checked constraints
-- Missing concurrent tests for types that are `!Sync` — thread safety is the caller's responsibility via `Arc<Mutex<T>>`, not the type's
-
----
-
 ## test-suggestions
 
 You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.

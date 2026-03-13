@@ -208,8 +208,7 @@ class TestExtractCategoryPrompt:
             "testing-nothing",
             "missing-assertions",
             "over-mocking",
-            "brittle-tests",
-            "missing-edge-cases"
+            "brittle-tests"
         ]
 
         for category in categories:
