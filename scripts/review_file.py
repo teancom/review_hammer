@@ -253,7 +253,8 @@ def review_file(
     api_key: str,
     base_url: str,
     model: str,
-    timeout: float = 120.0
+    timeout: float = 120.0,
+    test_context_paths: list[str] | None = None
 ) -> list:
     """
     Orchestrate code review for a single file.
@@ -274,6 +275,7 @@ def review_file(
         base_url: OpenAI-compatible API base URL
         model: Model to use
         timeout: API call timeout in seconds (default 120)
+        test_context_paths: Optional list of paths to test files to include as context
 
     Returns:
         List of findings (each is a dict with lines, severity, category, etc.)
@@ -298,6 +300,32 @@ def review_file(
     # Extract category prompt
     system_prompt = extract_category_prompt(str(template_path), category)
 
+    # Build user message: source code + optional test context
+    user_message = f"# Source file: {file_path}\n\n{numbered_source}"
+
+    if test_context_paths:
+        for test_path in test_context_paths:
+            if not os.path.exists(test_path):
+                print(f"Warning: Test context file not found: {test_path}", file=sys.stderr)
+                continue
+            with open(test_path, 'r') as f:
+                test_lines = f.readlines()
+            if len(test_lines) > 500:
+                print(
+                    f"Warning: Test file {test_path} has {len(test_lines)} lines, "
+                    f"truncating to 500 lines",
+                    file=sys.stderr
+                )
+                test_content = ''.join(test_lines[:500])
+                test_content += f"\n# ... truncated ({len(test_lines) - 500} lines omitted)"
+            else:
+                test_content = ''.join(test_lines)
+            numbered_test = prepend_line_numbers(test_content)
+            user_message += f"\n\n# Existing test file: {test_path}\n\n{numbered_test}"
+    else:
+        if category == "test-suggestions":
+            user_message += "\n\n# No existing test files found for this source file."
+
     # Create client with timeout and max_retries=0 (we handle retries ourselves)
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
@@ -309,7 +337,7 @@ def review_file(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": numbered_source}
+                    {"role": "user", "content": user_message}
                 ],
                 temperature=0
             )
@@ -407,6 +435,13 @@ def main():
         default=120.0,
         help="API call timeout in seconds (default: 120)"
     )
+    parser.add_argument(
+        "--test-context",
+        action="append",
+        default=None,
+        dest="test_context",
+        help="Path to existing test file(s) to include as context. Can be specified multiple times."
+    )
 
     args = parser.parse_args()
 
@@ -439,7 +474,8 @@ def main():
             api_key=api_key,
             base_url=base_url,
             model=model,
-            timeout=args.timeout
+            timeout=args.timeout,
+            test_context_paths=args.test_context
         )
 
         # Output findings as JSON
