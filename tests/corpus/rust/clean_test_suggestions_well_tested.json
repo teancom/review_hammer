@@ -1,0 +1,8 @@
+{
+    "type": "clean",
+    "category": "test-suggestions",
+    "language": "rust",
+    "description": "State machine with comprehensive test coverage — all transitions, error paths, and boundaries tested",
+    "expect_empty": true,
+    "test_file": "clean_test_suggestions_well_tested_tests.rs"
+}
