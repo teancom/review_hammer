@@ -269,5 +269,3 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for pure data classes or DTOs with no methods
 - Tests already covered in the existing test file(s) provided as context
 - Tests that only verify a method "doesn't throw" without checking the result
-
----
