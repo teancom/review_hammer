@@ -23,7 +23,13 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from openai import OpenAI, APIConnectionError, RateLimitError, APITimeoutError, AuthenticationError
+from openai import (
+    OpenAI,
+    APIConnectionError,
+    RateLimitError,
+    APITimeoutError,
+    AuthenticationError,
+)
 
 
 # Retry configuration
@@ -145,19 +151,19 @@ def extract_category_prompt(template_path: str, category: str) -> str:
         ValueError: If the category section is not found
         FileNotFoundError: If the template file does not exist
     """
-    with open(template_path, 'r') as f:
+    with open(template_path, "r") as f:
         content = f.read()
 
     # Find the first ## heading to know where preamble ends
-    lines = content.split('\n')
+    lines = content.split("\n")
     preamble_end = 0
     for i, line in enumerate(lines):
-        if line.startswith('## '):
+        if line.startswith("## "):
             preamble_end = i
             break
 
     # Extract preamble (everything before first ## heading)
-    preamble = '\n'.join(lines[:preamble_end]).rstrip()
+    preamble = "\n".join(lines[:preamble_end]).rstrip()
 
     # Find the target category section
     target_heading = f"## {category}"
@@ -165,7 +171,7 @@ def extract_category_prompt(template_path: str, category: str) -> str:
     category_end = None
 
     for i, line in enumerate(lines[preamble_end:], start=preamble_end):
-        if line.startswith('## '):
+        if line.startswith("## "):
             if line == target_heading:
                 category_start = i
             elif category_start is not None:
@@ -181,7 +187,7 @@ def extract_category_prompt(template_path: str, category: str) -> str:
         category_end = len(lines)
 
     # Extract category section
-    category_section = '\n'.join(lines[category_start:category_end]).rstrip()
+    category_section = "\n".join(lines[category_start:category_end]).rstrip()
 
     # Combine preamble and category
     return f"{preamble}\n\n{category_section}"
@@ -215,7 +221,10 @@ def parse_findings(raw_response: str) -> list:
             return result
         else:
             # JSON is valid but not an array
-            print("Warning: LLM response is JSON but not an array, returning empty findings", file=sys.stderr)
+            print(
+                "Warning: LLM response is JSON but not an array, returning empty findings",
+                file=sys.stderr,
+            )
             return []
     except json.JSONDecodeError:
         pass
@@ -223,7 +232,7 @@ def parse_findings(raw_response: str) -> list:
     # Try to extract JSON from markdown fences
     if "```json" in response or "```" in response:
         # Look for ```json...``` or ```...```
-        match = re.search(r'```(?:json)?\s*\n(.*?)\n```', response, re.DOTALL)
+        match = re.search(r"```(?:json)?\s*\n(.*?)\n```", response, re.DOTALL)
         if match:
             try:
                 result = json.loads(match.group(1))
@@ -231,7 +240,10 @@ def parse_findings(raw_response: str) -> list:
                     return result
                 else:
                     # JSON is valid but not an array
-                    print("Warning: LLM response is JSON but not an array, returning empty findings", file=sys.stderr)
+                    print(
+                        "Warning: LLM response is JSON but not an array, returning empty findings",
+                        file=sys.stderr,
+                    )
                     return []
             except json.JSONDecodeError:
                 pass
@@ -243,6 +255,7 @@ def parse_findings(raw_response: str) -> list:
 
 class RetryExhaustedError(Exception):
     """Raised when all retries are exhausted."""
+
     pass
 
 
@@ -254,7 +267,7 @@ def review_file(
     base_url: str,
     model: str,
     timeout: float = 120.0,
-    test_context_paths: list[str] | None = None
+    test_context_paths: list[str] | None = None,
 ) -> list:
     """
     Orchestrate code review for a single file.
@@ -287,7 +300,7 @@ def review_file(
         RetryExhaustedError: If all retries exhausted
     """
     # Read the file
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         source = f.read()
 
     # Prepend line numbers
@@ -306,20 +319,25 @@ def review_file(
     if test_context_paths:
         for test_path in test_context_paths:
             if not os.path.exists(test_path):
-                print(f"Warning: Test context file not found: {test_path}", file=sys.stderr)
+                print(
+                    f"Warning: Test context file not found: {test_path}",
+                    file=sys.stderr,
+                )
                 continue
-            with open(test_path, 'r') as f:
+            with open(test_path, "r") as f:
                 test_lines = f.readlines()
             if len(test_lines) > 500:
                 print(
                     f"Warning: Test file {test_path} has {len(test_lines)} lines, "
                     f"truncating to 500 lines",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
-                test_content = ''.join(test_lines[:500])
-                test_content += f"\n# ... truncated ({len(test_lines) - 500} lines omitted)"
+                test_content = "".join(test_lines[:500])
+                test_content += (
+                    f"\n# ... truncated ({len(test_lines) - 500} lines omitted)"
+                )
             else:
-                test_content = ''.join(test_lines)
+                test_content = "".join(test_lines)
             numbered_test = prepend_line_numbers(test_content)
             user_message += f"\n\n# Existing test file: {test_path}\n\n{numbered_test}"
     else:
@@ -337,9 +355,9 @@ def review_file(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
+                    {"role": "user", "content": user_message},
                 ],
-                temperature=0
+                temperature=0,
             )
 
             # Extract response content
@@ -350,7 +368,7 @@ def review_file(
 
             return findings
 
-        except AuthenticationError as e:
+        except AuthenticationError:
             # Do not retry authentication errors
             raise
 
@@ -361,8 +379,12 @@ def review_file(
                 # Check for Retry-After header (RateLimitError from openai SDK
                 # exposes the response object)
                 retry_after = None
-                if isinstance(e, RateLimitError) and hasattr(e, 'response') and e.response is not None:
-                    raw_header = e.response.headers.get('retry-after')
+                if (
+                    isinstance(e, RateLimitError)
+                    and hasattr(e, "response")
+                    and e.response is not None
+                ):
+                    raw_header = e.response.headers.get("retry-after")
                     if raw_header is not None:
                         retry_after = parse_retry_after(raw_header)
 
@@ -372,7 +394,7 @@ def review_file(
                     print(
                         f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
                         f"Retry-After: {wait_time:.1f}s",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
                 else:
                     # Exponential backoff with jitter (±25%)
@@ -381,13 +403,16 @@ def review_file(
                     print(
                         f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
                         f"Retrying in {wait_time:.1f}s...",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
                     backoff = min(backoff * 2, MAX_BACKOFF)
 
                 time.sleep(wait_time)
             else:
-                print(f"Error: {error_name} after {MAX_RETRIES} retries: {e}", file=sys.stderr)
+                print(
+                    f"Error: {error_name} after {MAX_RETRIES} retries: {e}",
+                    file=sys.stderr,
+                )
                 raise RetryExhaustedError(f"{error_name} after {MAX_RETRIES} retries")
 
     # This should not be reached, but raise if somehow loop exits normally
@@ -399,48 +424,43 @@ def main():
     parser = argparse.ArgumentParser(
         description="Review a code file for bugs in a specific category"
     )
-    parser.add_argument(
-        "file_path",
-        help="Path to the file to review"
-    )
+    parser.add_argument("file_path", help="Path to the file to review")
     parser.add_argument(
         "--category",
         required=True,
-        help="Specialist category (e.g., logic-errors, null-safety)"
+        help="Specialist category (e.g., logic-errors, null-safety)",
     )
     parser.add_argument(
         "--language",
         required=False,
         default=None,
-        help="Language key (maps to prompts/{language}.md). If not provided, auto-detected from file extension."
+        help="Language key (maps to prompts/{language}.md). If not provided, auto-detected from file extension.",
     )
     parser.add_argument(
         "--api-key",
         default=None,
-        help="OpenAI API key (or set REVIEWERS_API_KEY env var)"
+        help="OpenAI API key (or set REVIEWERS_API_KEY env var)",
     )
     parser.add_argument(
         "--base-url",
         default=None,
-        help="OpenAI-compatible API base URL (or set REVIEWERS_BASE_URL env var)"
+        help="OpenAI-compatible API base URL (or set REVIEWERS_BASE_URL env var)",
     )
     parser.add_argument(
-        "--model",
-        default=None,
-        help="Model to use (or set REVIEWERS_MODEL env var)"
+        "--model", default=None, help="Model to use (or set REVIEWERS_MODEL env var)"
     )
     parser.add_argument(
         "--timeout",
         type=float,
         default=120.0,
-        help="API call timeout in seconds (default: 120)"
+        help="API call timeout in seconds (default: 120)",
     )
     parser.add_argument(
         "--test-context",
         action="append",
         default=None,
         dest="test_context",
-        help="Path to existing test file(s) to include as context. Can be specified multiple times."
+        help="Path to existing test file(s) to include as context. Can be specified multiple times.",
     )
 
     args = parser.parse_args()
@@ -452,12 +472,17 @@ def main():
 
     # Resolve configuration from args or env vars
     api_key = args.api_key or os.environ.get("REVIEWERS_API_KEY")
-    base_url = args.base_url or os.environ.get("REVIEWERS_BASE_URL", "https://api.z.ai/api/paas/v4/")
+    base_url = args.base_url or os.environ.get(
+        "REVIEWERS_BASE_URL", "https://api.z.ai/api/paas/v4/"
+    )
     model = args.model or os.environ.get("REVIEWERS_MODEL", "glm-5")
 
     # Validate required parameters
     if not api_key:
-        print("Error: API key is required. Set --api-key or REVIEWERS_API_KEY environment variable.", file=sys.stderr)
+        print(
+            "Error: API key is required. Set --api-key or REVIEWERS_API_KEY environment variable.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:
@@ -475,7 +500,7 @@ def main():
             base_url=base_url,
             model=model,
             timeout=args.timeout,
-            test_context_paths=args.test_context
+            test_context_paths=args.test_context,
         )
 
         # Output findings as JSON
@@ -493,7 +518,7 @@ def main():
         print(f"Error: Authentication failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    except RetryExhaustedError as e:
+    except RetryExhaustedError:
         # All retries exhausted: output empty findings and exit with code 2
         print("[]")
         sys.exit(2)
