@@ -228,5 +228,8 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for framework-provided behavior (ORM basic CRUD, framework routing)
 - Tests for pure data structures with no logic
+- Tests for trivial timestamp or duration comparisons (`now - lastChange < threshold`) where testing requires mocking the clock or sleep-based waits that produce flaky tests
+- Tests for numeric type conversions that are exact in the value range — only suggest if the conversion involves actual precision loss
+- Tests where the only way to verify behavior is mocking an external dependency to assert call order on trivial branching (e.g., two-line if/else that calls one external function or another)
 - Tests already covered in the existing test file(s) provided as context
 - Tests that only verify a function "doesn't throw/panic" without checking the result

@@ -248,5 +248,8 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for React component rendering with no logic (pure presentational components)
 - Tests for framework-provided behavior (Express routing, Next.js data fetching patterns)
 - Tests for pure data structures with no methods
+- Tests for trivial timestamp or duration comparisons (`Date.now() - lastChange < threshold`) where testing requires mocking the clock or sleep-based waits that produce flaky tests
+- Tests for numeric type conversions that are exact in the value range — only suggest if the conversion involves actual precision loss
+- Tests where the only way to verify behavior is mocking an external dependency to assert call order on trivial branching (e.g., two-line if/else that calls one external function or another)
 - Tests already covered in the existing test file(s) provided as context
 - Tests that only verify a function "doesn't throw" without checking the result

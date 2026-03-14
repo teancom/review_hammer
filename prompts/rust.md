@@ -271,8 +271,12 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for trivial getters/setters/accessors with no logic
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for `Clone`, `PartialEq`, `Hash`, or other derived trait implementations
-- Tests for framework-provided behavior (`serde` serialization of simple structs, `clap` argument parsing)
+- Tests for framework-provided behavior (`serde` serialization of simple structs, `clap` argument parsing). This includes `serde` roundtrips on structs with `Option<T>` fields using `skip_serializing_if` or `default` — these are standard serde patterns, not custom logic
+- Tests for wrapper/newtype structs that delegate all methods to an inner trait object with no additional logic
 - Tests for pure data structures with no logic (struct definitions, enum variants with no methods)
+- Tests for trivial timestamp or duration comparisons (`now - last_change < threshold`) where testing requires mocking `SystemTime`/`Instant` or sleep-based waits that produce flaky tests
+- Tests for numeric type conversions that are exact in the value range (e.g., `u8` through `f32` roundtrips for values 0-100) — only suggest if the conversion involves actual precision loss
+- Tests where the only way to verify behavior is mocking an external crate to assert call order on trivial branching (e.g., two-line if/else that calls one external function or another)
 - Tests already covered in the existing test file(s) provided as context
 - Tests for `#[cfg(test)]` module scaffolding or test helper functions
 - Tests that only verify a function "doesn't panic" without checking the result

@@ -243,5 +243,8 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for `__repr__`/`__str__` output formatting on simple classes
 - Tests for framework-provided behavior (Django ORM basic CRUD, Flask routing)
 - Tests for pure data structures with no logic (TypedDict, NamedTuple with no methods)
+- Tests for trivial timestamp or duration comparisons (`now - last_change < threshold`) where testing requires mocking `time.time()`/`datetime.now()` or sleep-based waits that produce flaky tests
+- Tests for numeric type conversions that are exact in the value range — only suggest if the conversion involves actual precision loss
+- Tests where the only way to verify behavior is mocking an external dependency to assert call order on trivial branching (e.g., two-line if/else that calls one external function or another)
 - Tests already covered in the existing test file(s) provided as context
 - Tests that only verify a function "doesn't raise" without checking the result

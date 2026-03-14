@@ -243,5 +243,8 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for standard library container usage (std::vector, std::map basic operations)
 - Tests for framework-provided behavior (Qt signals/slots wiring, Boost.Asio basic patterns)
 - Tests for pure data structures (POD types, simple structs with no methods)
+- Tests for trivial timestamp or duration comparisons (`now - last_change < threshold`) where testing requires mocking the clock or sleep-based waits that produce flaky tests
+- Tests for numeric type conversions that are exact in the value range — only suggest if the conversion involves actual precision loss
+- Tests where the only way to verify behavior is mocking an external dependency to assert call order on trivial branching (e.g., two-line if/else that calls one external function or another)
 - Tests already covered in the existing test file(s) provided as context
 - Tests that only verify a function "doesn't throw" without checking the result
