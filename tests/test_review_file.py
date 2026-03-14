@@ -265,6 +265,17 @@ class TestExtractCategoryPrompt:
         count = result.count("Return a JSON array")
         assert count == 1, "Preamble should not be duplicated"
 
+    def test_test_suggestions_category_contains_cap_language(self):
+        """test-suggestions category should contain the 'Return at most 3 suggestions' cap (AC5.2)"""
+        template_path = Path(__file__).parent.parent / "prompts" / "generic.md"
+
+        result = extract_category_prompt(str(template_path), "test-suggestions")
+
+        # Verify the extracted prompt contains the hard cap language
+        assert "Return at most 3 suggestions" in result, (
+            "test-suggestions prompt must contain the '3 suggestions' cap language"
+        )
+
 
 class TestParseFindings:
     """Test JSON parsing and error handling (AC2.4)"""
