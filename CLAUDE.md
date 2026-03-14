@@ -33,7 +33,7 @@ Last verified: 2026-03-13
 - `REVIEWERS_API_KEY` (required) - API key for OpenAI-compatible endpoint
 - `REVIEWERS_BASE_URL` (optional, default: `https://api.z.ai/api/paas/v4/`)
 - `REVIEWERS_MODEL` (optional, default: `glm-5`)
-- `REVIEWERS_MAX_CONCURRENT` (optional, default: `2`) - Max parallel file-reviewer agents per batch
+- `REVIEWERS_MAX_CONCURRENT` (optional, default: `2`) - Max parallel review agents per batch (shared by file-reviewer and test-suggester)
 
 ## Architecture
 The plugin implements two multi-agent pipelines sharing the same backend:
