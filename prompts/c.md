@@ -219,19 +219,29 @@ Look for:
 
 ---
 
-## missing-edge-cases
+## test-suggestions
 
-**Focus:** Find tests that only cover the happy path, missing boundary conditions and error cases.
+You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.
 
-Look for:
-- No test for NULL input (NULL pointers, empty strings)
-- No test for boundary values (0, -1, max values, size_t limits)
-- No test for error/failure paths
-- No test for off-by-one conditions
-- Single test case where multiple distinct behaviors exist
+**Output format:** Same JSON array as other categories. In the `description` field, explain WHAT to test and WHY it matters — not how to implement the test. The `category` field must be `"test-suggestions"`.
 
-**DO NOT REPORT:**
-- Edge cases handled by called functions with their own tests
-- Exploratory/example tests not meant to be exhaustive
-- Tests for trivial functions where edge cases don't differ from happy path
-- Compiler-enforced constraints that prevent edge cases
+**IMPORTANT:** Return at most 3 suggestions. If fewer than 3 are warranted, return fewer. If nothing is worth suggesting, return `[]`.
+
+**WHAT TO SUGGEST** (in priority order):
+
+1. **State transition coverage** — Code with distinct states (enum/flag-driven state machines) where transitions between states are not tested. Focus on transitions that change observable behavior.
+2. **Error path coverage** — Error handling paths (return codes, errno, goto cleanup) with no corresponding error-case tests. Prioritize paths where the error affects resource cleanup or data integrity.
+3. **Business logic boundaries** — Domain-specific boundary conditions where behavior changes (buffer size limits, threshold values, mode switches). The boundary must be in THIS code, not in a called function.
+4. **Integration seam tests** — Boundaries between components where one side makes assumptions about the other's behavior (function pointer contracts, callback signatures, struct layout assumptions). Focus on assumptions that could silently diverge.
+5. **Property-based test opportunities** — Functions with clear invariants: roundtrip encode/decode, idempotency, commutativity. Only suggest when the invariant is non-trivial and not already covered.
+
+**DO NOT SUGGEST:**
+
+- Tests that validate C language semantics (pointer arithmetic rules, integer promotion, struct padding)
+- Tests for trivial struct field access with no logic
+- Tests for simple macro definitions with no conditional logic
+- Tests that merely exercise code for coverage without meaningful assertions
+- Tests for standard library function usage (strlen, memcpy basic patterns)
+- Tests for pure data structures (structs with no associated functions)
+- Tests already covered in the existing test file(s) provided as context
+- Tests that only verify a function "returns 0" without checking side effects

@@ -19,14 +19,30 @@ import subprocess
 import sys
 from pathlib import Path
 
-REQUIRED_METADATA_FIELDS = {"type", "category", "language", "description", "expect_empty"}
+REQUIRED_METADATA_FIELDS = {
+    "type",
+    "category",
+    "language",
+    "description",
+    "expect_empty",
+}
 REVIEW_TIMEOUT = 180  # seconds
 
 # Subset of review_file.py's EXTENSION_MAP for language/extension validation
 EXTENSION_TO_LANGUAGE = {
-    ".py": "python", ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp",
-    ".java": "java", ".cs": "csharp", ".js": "javascript", ".ts": "typescript",
-    ".kt": "kotlin", ".rs": "rust", ".go": "go", ".swift": "swift",
+    ".py": "python",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".java": "java",
+    ".cs": "csharp",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".kt": "kotlin",
+    ".rs": "rust",
+    ".go": "go",
+    ".swift": "swift",
 }
 
 
@@ -51,10 +67,16 @@ def validate_metadata(meta_path: Path) -> tuple[dict | None, str | None]:
         return None, f"Missing required fields: {', '.join(sorted(missing))}"
 
     if meta["type"] not in ("clean", "bug", "adversarial"):
-        return None, f"Invalid type: {meta['type']} (expected clean, bug, or adversarial)"
+        return (
+            None,
+            f"Invalid type: {meta['type']} (expected clean, bug, or adversarial)",
+        )
 
     if not isinstance(meta["expect_empty"], bool):
-        return None, f"expect_empty must be boolean, got {type(meta['expect_empty']).__name__}"
+        return (
+            None,
+            f"expect_empty must be boolean, got {type(meta['expect_empty']).__name__}",
+        )
 
     return meta, None
 
@@ -69,14 +91,26 @@ def find_source_file(meta_path: Path) -> Path | None:
     return None
 
 
-def run_review(source_path: Path, category: str, language: str, script_dir: Path) -> tuple[list | None, str | None]:
+def run_review(
+    source_path: Path,
+    category: str,
+    language: str,
+    script_dir: Path,
+    test_file_path: Path | None = None,
+) -> tuple[list | None, str | None]:
     """Run review_file.py and return (findings, error)."""
     cmd = [
-        "uv", "run", str(script_dir / "review_file.py"),
+        "uv",
+        "run",
+        str(script_dir / "review_file.py"),
         str(source_path),
-        "--category", category,
-        "--language", language,
+        "--category",
+        category,
+        "--language",
+        language,
     ]
+    if test_file_path is not None:
+        cmd.extend(["--test-context", str(test_file_path)])
     try:
         result = subprocess.run(
             cmd,
@@ -107,18 +141,30 @@ def apply_gate(meta: dict, findings: list) -> tuple[bool, str]:
             return True, "Clean file returned no findings (expected)"
         else:
             descs = [f["description"][:80] for f in findings[:3]]
-            return False, f"Clean file returned {len(findings)} unexpected finding(s): {descs}"
+            return (
+                False,
+                f"Clean file returned {len(findings)} unexpected finding(s): {descs}",
+            )
     else:
         if len(findings) == 0:
-            return False, "Bug/adversarial file returned no findings (expected non-empty)"
+            return (
+                False,
+                "Bug/adversarial file returned no findings (expected non-empty)",
+            )
 
         expected_cat = meta["category"]
         matching = [f for f in findings if f.get("category") == expected_cat]
         if matching:
-            return True, f"Found {len(matching)} finding(s) in expected category '{expected_cat}'"
+            return (
+                True,
+                f"Found {len(matching)} finding(s) in expected category '{expected_cat}'",
+            )
         else:
             found_cats = list(set(f.get("category", "unknown") for f in findings))
-            return False, f"Findings exist but none match category '{expected_cat}' (found: {found_cats})"
+            return (
+                False,
+                f"Findings exist but none match category '{expected_cat}' (found: {found_cats})",
+            )
 
 
 def main():
@@ -150,7 +196,7 @@ def main():
     for case in cases:
         meta_path = case["meta_path"]
         rel_path = meta_path.relative_to(corpus_dir)
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Case: {rel_path}")
 
         # Validate metadata
@@ -160,7 +206,9 @@ def main():
             results.append({"case": str(rel_path), "status": "error", "reason": error})
             continue
 
-        print(f"  Type: {meta['type']}, Category: {meta['category']}, Expect empty: {meta['expect_empty']}")
+        print(
+            f"  Type: {meta['type']}, Category: {meta['category']}, Expect empty: {meta['expect_empty']}"
+        )
 
         # Find source file
         source_path = find_source_file(meta_path)
@@ -175,18 +223,41 @@ def main():
         # Warn if metadata language doesn't match source file extension
         expected_lang = EXTENSION_TO_LANGUAGE.get(source_path.suffix)
         if expected_lang and expected_lang != meta["language"]:
-            print(f"  WARNING: metadata language '{meta['language']}' does not match "
-                  f"source extension '{source_path.suffix}' (expected '{expected_lang}')")
+            print(
+                f"  WARNING: metadata language '{meta['language']}' does not match "
+                f"source extension '{source_path.suffix}' (expected '{expected_lang}')"
+            )
+
+        # Resolve optional test file for test-context
+        test_file_path = None
+        if "test_file" in meta:
+            test_file_path = meta_path.parent / meta["test_file"]
+            if not test_file_path.exists():
+                error = f"Test file not found: {meta['test_file']}"
+                print(f"  ERROR: {error}")
+                results.append(
+                    {"case": str(rel_path), "status": "error", "reason": error}
+                )
+                continue
+            print(f"  Test context: {meta['test_file']}")
 
         # Run review
-        findings, error = run_review(source_path, meta["category"], meta["language"], script_dir)
+        findings, error = run_review(
+            source_path,
+            meta["category"],
+            meta["language"],
+            script_dir,
+            test_file_path=test_file_path,
+        )
         if error:
             print(f"  ERROR: {error}")
-            results.append({
-                "case": str(rel_path),
-                "status": "error",
-                "reason": error,
-            })
+            results.append(
+                {
+                    "case": str(rel_path),
+                    "status": "error",
+                    "reason": error,
+                }
+            )
             continue
 
         # Apply gate
@@ -210,8 +281,10 @@ def main():
     failed = sum(1 for r in results if r["status"] == "fail")
     errors = sum(1 for r in results if r["status"] == "error")
 
-    print(f"\n{'='*60}")
-    print(f"Summary: {passed} passed, {failed} failed, {errors} errors out of {len(results)} cases")
+    print(f"\n{'=' * 60}")
+    print(
+        f"Summary: {passed} passed, {failed} failed, {errors} errors out of {len(results)} cases"
+    )
 
     if failed > 0 or errors > 0:
         print("\nFailed/errored cases:")

@@ -11,7 +11,6 @@ Verifies:
 import email.utils
 import json
 import os
-import sys
 import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -27,9 +26,14 @@ from review_file import (
     detect_language,
     EXTENSION_MAP,
     RetryExhaustedError,
-    MAX_RETRIES
+    MAX_RETRIES,
 )
-from openai import RateLimitError, APITimeoutError, APIConnectionError, AuthenticationError
+from openai import (
+    RateLimitError,
+    APITimeoutError,
+    APIConnectionError,
+    AuthenticationError,
+)
 
 
 class TestPrependLineNumbers:
@@ -45,7 +49,7 @@ class TestPrependLineNumbers:
         """Multiple lines should be right-justified"""
         source = "def foo():\n    return 42"
         result = prepend_line_numbers(source)
-        lines = result.split('\n')
+        lines = result.split("\n")
         assert len(lines) == 2
         assert lines[0] == "1| def foo():"
         assert lines[1] == "2|     return 42"
@@ -54,7 +58,7 @@ class TestPrependLineNumbers:
         """Line numbers should be right-justified to match width of highest line number"""
         source = "\n".join([f"line {i}" for i in range(1, 11)])
         result = prepend_line_numbers(source)
-        lines = result.split('\n')
+        lines = result.split("\n")
         # Lines 1-9 should have 2-char width (space-padded), line 10 should have 2-char width
         assert lines[0].startswith(" 1| ")
         assert lines[8].startswith(" 9| ")
@@ -69,9 +73,9 @@ class TestPrependLineNumbers:
         """Trailing newline should be removed in output"""
         source = "line 1\nline 2\n"
         result = prepend_line_numbers(source)
-        lines = result.split('\n')
+        lines = result.split("\n")
         assert len(lines) == 2
-        assert not result.endswith('\n')
+        assert not result.endswith("\n")
 
     def test_preserves_indentation(self):
         """Indentation should be preserved after line number"""
@@ -170,10 +174,29 @@ class TestDetectLanguage:
     def test_extension_map_completeness(self):
         """All extensions in EXTENSION_MAP should be in task spec"""
         expected_extensions = {
-            ".py", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx",
-            ".java", ".cs", ".js", ".mjs", ".cjs", ".jsx",
-            ".ts", ".tsx", ".mts", ".cts",
-            ".kt", ".kts", ".rs", ".go", ".swift"
+            ".py",
+            ".c",
+            ".h",
+            ".cpp",
+            ".cc",
+            ".cxx",
+            ".hpp",
+            ".hxx",
+            ".java",
+            ".cs",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".tsx",
+            ".mts",
+            ".cts",
+            ".kt",
+            ".kts",
+            ".rs",
+            ".go",
+            ".swift",
         }
         assert set(EXTENSION_MAP.keys()) == expected_extensions
 
@@ -205,16 +228,18 @@ class TestExtractCategoryPrompt:
             "logic-errors",
             "error-handling",
             "state-management",
+            "test-suggestions",
             "testing-nothing",
             "missing-assertions",
             "over-mocking",
             "brittle-tests",
-            "missing-edge-cases"
         ]
 
         for category in categories:
             result = extract_category_prompt(str(template_path), category)
-            assert len(result) > 100, f"Category {category} should have substantial content"
+            assert len(result) > 100, (
+                f"Category {category} should have substantial content"
+            )
             # Preamble should always be there
             assert "Output format:" in result
 
@@ -240,16 +265,29 @@ class TestExtractCategoryPrompt:
         count = result.count("Return a JSON array")
         assert count == 1, "Preamble should not be duplicated"
 
+    def test_test_suggestions_category_contains_cap_language(self):
+        """test-suggestions category should contain the 'Return at most 3 suggestions' cap (AC5.2)"""
+        template_path = Path(__file__).parent.parent / "prompts" / "generic.md"
+
+        result = extract_category_prompt(str(template_path), "test-suggestions")
+
+        # Verify the extracted prompt contains the hard cap language
+        assert "Return at most 3 suggestions" in result, (
+            "test-suggestions prompt must contain the '3 suggestions' cap language"
+        )
+
 
 class TestParseFindings:
     """Test JSON parsing and error handling (AC2.4)"""
 
     def test_valid_json_array(self):
         """Should parse valid JSON array"""
-        response = json.dumps([
-            {"lines": [1, 5], "severity": "high", "category": "logic-errors"},
-            {"lines": [10, 12], "severity": "medium", "category": "null-safety"}
-        ])
+        response = json.dumps(
+            [
+                {"lines": [1, 5], "severity": "high", "category": "logic-errors"},
+                {"lines": [10, 12], "severity": "medium", "category": "null-safety"},
+            ]
+        )
 
         result = parse_findings(response)
 
@@ -346,11 +384,11 @@ class TestReviewFile:
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = json.dumps([
-            {"lines": [1, 2], "severity": "medium", "category": "logic-errors"}
-        ])
+        mock_response.choices[0].message.content = json.dumps(
+            [{"lines": [1, 2], "severity": "medium", "category": "logic-errors"}]
+        )
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
@@ -361,7 +399,7 @@ class TestReviewFile:
                 language="generic",
                 api_key="test-key",
                 base_url="https://api.example.com/",
-                model="test-model"
+                model="test-model",
             )
 
             # Verify OpenAI was called correctly
@@ -369,7 +407,7 @@ class TestReviewFile:
                 api_key="test-key",
                 base_url="https://api.example.com/",
                 timeout=120.0,
-                max_retries=0
+                max_retries=0,
             )
 
             # Verify chat.completions.create was called
@@ -396,14 +434,14 @@ class TestReviewFile:
                 language="generic",
                 api_key="test-key",
                 base_url="https://api.example.com/",
-                model="test-model"
+                model="test-model",
             )
 
     def test_review_file_missing_category(self, temp_file_with_content):
         """Should raise ValueError if category not found in template"""
         temp_file = temp_file_with_content("code")
 
-        with patch('review_file.OpenAI'):
+        with patch("review_file.OpenAI"):
             with pytest.raises(ValueError, match="not found"):
                 review_file(
                     file_path=temp_file,
@@ -411,7 +449,7 @@ class TestReviewFile:
                     language="generic",
                     api_key="test-key",
                     base_url="https://api.example.com/",
-                    model="test-model"
+                    model="test-model",
                 )
 
     def test_review_file_uses_correct_prompt_path(self, temp_file_with_content):
@@ -421,7 +459,7 @@ class TestReviewFile:
         mock_response = MagicMock()
         mock_response.choices[0].message.content = "[]"
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             mock_client.chat.completions.create.return_value = mock_response
@@ -432,7 +470,7 @@ class TestReviewFile:
                 language="generic",
                 api_key="test-key",
                 base_url="https://api.example.com/",
-                model="test-model"
+                model="test-model",
             )
 
             # Verify the call succeeded (template was found)
@@ -442,7 +480,9 @@ class TestReviewFile:
 class TestMainCLI:
     """Test CLI entry point with argument validation (AC2.3)"""
 
-    def test_main_missing_api_key_exits_with_code_1(self, capsys, temp_file_with_content):
+    def test_main_missing_api_key_exits_with_code_1(
+        self, capsys, temp_file_with_content
+    ):
         """main() should exit with code 1 and print error to stderr when API key is missing"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
@@ -453,8 +493,9 @@ class TestMainCLI:
             # Remove REVIEWERS_API_KEY from environment
             os.environ.pop("REVIEWERS_API_KEY", None)
 
-            with patch('sys.argv', test_argv):
+            with patch("sys.argv", test_argv):
                 from review_file import main
+
                 with pytest.raises(SystemExit) as exc_info:
                     main()
 
@@ -476,13 +517,14 @@ class TestMainCLI:
         test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
 
         with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
-            with patch('sys.argv', test_argv):
-                with patch('review_file.OpenAI') as mock_openai_class:
+            with patch("sys.argv", test_argv):
+                with patch("review_file.OpenAI") as mock_openai_class:
                     mock_client = MagicMock()
                     mock_openai_class.return_value = mock_client
                     mock_client.chat.completions.create.return_value = mock_response
 
                     from review_file import main
+
                     # Should not raise SystemExit
                     main()
 
@@ -497,15 +539,17 @@ class TestRetryAndBackoff:
         """RateLimitError should trigger retry and eventually raise RetryExhaustedError"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             # Simulate persistent rate limit error on all attempts (no Retry-After header)
             mock_response = MagicMock()
             mock_response.headers = {}
-            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+            mock_client.chat.completions.create.side_effect = RateLimitError(
+                "Rate limited", response=mock_response, body={}
+            )
 
-            with patch('review_file.time.sleep') as mock_sleep:
+            with patch("review_file.time.sleep") as mock_sleep:
                 with pytest.raises(RetryExhaustedError, match="after 5 retries"):
                     review_file(
                         file_path=temp_file,
@@ -513,23 +557,27 @@ class TestRetryAndBackoff:
                         language="generic",
                         api_key="test-key",
                         base_url="https://api.example.com/",
-                        model="test-model"
+                        model="test-model",
                     )
 
                 # Should have called sleep MAX_RETRIES times (1, 2, 4, 8, 16 seconds)
                 assert mock_sleep.call_count == MAX_RETRIES
 
-    def test_authentication_error_raises_immediately_without_retry(self, temp_file_with_content):
+    def test_authentication_error_raises_immediately_without_retry(
+        self, temp_file_with_content
+    ):
         """AuthenticationError should raise immediately without retry"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             mock_response = MagicMock()
-            mock_client.chat.completions.create.side_effect = AuthenticationError("Invalid API key", response=mock_response, body={})
+            mock_client.chat.completions.create.side_effect = AuthenticationError(
+                "Invalid API key", response=mock_response, body={}
+            )
 
-            with patch('review_file.time.sleep') as mock_sleep:
+            with patch("review_file.time.sleep") as mock_sleep:
                 with pytest.raises(AuthenticationError):
                     review_file(
                         file_path=temp_file,
@@ -537,7 +585,7 @@ class TestRetryAndBackoff:
                         language="generic",
                         api_key="test-key",
                         base_url="https://api.example.com/",
-                        model="test-model"
+                        model="test-model",
                     )
 
                 # Should NOT have called sleep at all
@@ -550,13 +598,15 @@ class TestRetryAndBackoff:
         """APITimeoutError should trigger retry and eventually raise RetryExhaustedError"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             mock_request = MagicMock()
-            mock_client.chat.completions.create.side_effect = APITimeoutError(request=mock_request)
+            mock_client.chat.completions.create.side_effect = APITimeoutError(
+                request=mock_request
+            )
 
-            with patch('review_file.time.sleep') as mock_sleep:
+            with patch("review_file.time.sleep") as mock_sleep:
                 with pytest.raises(RetryExhaustedError, match="after 5 retries"):
                     review_file(
                         file_path=temp_file,
@@ -564,7 +614,7 @@ class TestRetryAndBackoff:
                         language="generic",
                         api_key="test-key",
                         base_url="https://api.example.com/",
-                        model="test-model"
+                        model="test-model",
                     )
 
                 # Should have called sleep MAX_RETRIES times
@@ -576,13 +626,15 @@ class TestRetryAndBackoff:
         """APIConnectionError should trigger retry and eventually raise RetryExhaustedError"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             mock_request = MagicMock()
-            mock_client.chat.completions.create.side_effect = APIConnectionError(message="Connection refused", request=mock_request)
+            mock_client.chat.completions.create.side_effect = APIConnectionError(
+                message="Connection refused", request=mock_request
+            )
 
-            with patch('review_file.time.sleep') as mock_sleep:
+            with patch("review_file.time.sleep") as mock_sleep:
                 with pytest.raises(RetryExhaustedError, match="after 5 retries"):
                     review_file(
                         file_path=temp_file,
@@ -590,7 +642,7 @@ class TestRetryAndBackoff:
                         language="generic",
                         api_key="test-key",
                         base_url="https://api.example.com/",
-                        model="test-model"
+                        model="test-model",
                     )
 
                 # Should have called sleep MAX_RETRIES times
@@ -598,33 +650,35 @@ class TestRetryAndBackoff:
                 # Should have attempted MAX_RETRIES + 1 times total
                 assert mock_client.chat.completions.create.call_count == MAX_RETRIES + 1
 
-    def test_successful_response_on_second_attempt_after_transient_error(self, temp_file_with_content):
+    def test_successful_response_on_second_attempt_after_transient_error(
+        self, temp_file_with_content
+    ):
         """Should successfully return findings on second attempt after transient error"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
         mock_response = MagicMock()
-        mock_response.choices[0].message.content = json.dumps([
-            {"lines": [1, 2], "severity": "high", "category": "logic-errors"}
-        ])
+        mock_response.choices[0].message.content = json.dumps(
+            [{"lines": [1, 2], "severity": "high", "category": "logic-errors"}]
+        )
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             # Fail first time with timeout, succeed second time
             mock_request = MagicMock()
             mock_client.chat.completions.create.side_effect = [
                 APITimeoutError(request=mock_request),
-                mock_response
+                mock_response,
             ]
 
-            with patch('review_file.time.sleep') as mock_sleep:
+            with patch("review_file.time.sleep") as mock_sleep:
                 result = review_file(
                     file_path=temp_file,
                     category="logic-errors",
                     language="generic",
                     api_key="test-key",
                     base_url="https://api.example.com/",
-                    model="test-model"
+                    model="test-model",
                 )
 
                 # Should have succeeded on second attempt
@@ -642,16 +696,20 @@ class TestRetryAndBackoff:
         """Backoff should increase exponentially with jitter when no Retry-After header"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             # Mock response with no retry-after header
             mock_response = MagicMock()
             mock_response.headers = {}
-            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+            mock_client.chat.completions.create.side_effect = RateLimitError(
+                "Rate limited", response=mock_response, body={}
+            )
 
-            with patch('review_file.time.sleep') as mock_sleep, \
-                 patch('review_file.random.uniform', return_value=0.0):
+            with (
+                patch("review_file.time.sleep") as mock_sleep,
+                patch("review_file.random.uniform", return_value=0.0),
+            ):
                 with pytest.raises(RetryExhaustedError):
                     review_file(
                         file_path=temp_file,
@@ -659,7 +717,7 @@ class TestRetryAndBackoff:
                         language="generic",
                         api_key="test-key",
                         base_url="https://api.example.com/",
-                        model="test-model"
+                        model="test-model",
                     )
 
                 # Extract sleep durations from calls
@@ -676,15 +734,17 @@ class TestRetryAndBackoff:
         """When server sends Retry-After header, use that instead of backoff"""
         temp_file = temp_file_with_content("def foo():\n    return 42")
 
-        with patch('review_file.OpenAI') as mock_openai_class:
+        with patch("review_file.OpenAI") as mock_openai_class:
             mock_client = MagicMock()
             mock_openai_class.return_value = mock_client
             # Mock response with retry-after header
             mock_response = MagicMock()
-            mock_response.headers = {'retry-after': '5'}
-            mock_client.chat.completions.create.side_effect = RateLimitError("Rate limited", response=mock_response, body={})
+            mock_response.headers = {"retry-after": "5"}
+            mock_client.chat.completions.create.side_effect = RateLimitError(
+                "Rate limited", response=mock_response, body={}
+            )
 
-            with patch('review_file.time.sleep') as mock_sleep:
+            with patch("review_file.time.sleep") as mock_sleep:
                 with pytest.raises(RetryExhaustedError):
                     review_file(
                         file_path=temp_file,
@@ -692,7 +752,7 @@ class TestRetryAndBackoff:
                         language="generic",
                         api_key="test-key",
                         base_url="https://api.example.com/",
-                        model="test-model"
+                        model="test-model",
                     )
 
                 # All waits should be 5.0 (from Retry-After header)
@@ -736,3 +796,201 @@ class TestParseRetryAfter:
 
     def test_empty_string_returns_none(self):
         assert parse_retry_after("") is None
+
+
+class TestTestContext:
+    """Test --test-context flag functionality (AC3.1, AC5.3)"""
+
+    def test_test_context_included_in_user_message(self, temp_file_with_content):
+        """review_file() should include test file content in the user message"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+        test_file = temp_file_with_content(
+            "def test_foo():\n    assert foo() == 42", suffix=".test.py"
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="test-suggestions",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=[test_file],
+            )
+
+            # Verify the user message includes both source and test content
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "def foo():" in user_message
+            assert "def test_foo():" in user_message
+            assert f"Existing test file: {test_file}" in user_message
+
+    def test_test_context_file_truncation(self, temp_file_with_content, capsys):
+        """Test context files exceeding 500 lines should be truncated with warning"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+        # Create a test file with 600 lines
+        test_content = "\n".join([f"# line {i}" for i in range(1, 601)])
+        test_file = temp_file_with_content(test_content, suffix=".test.py")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=[test_file],
+            )
+
+            # Verify the user message contains truncation notice
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "truncated (100 lines omitted)" in user_message
+
+            # Verify the stderr warning message was printed
+            captured = capsys.readouterr()
+            assert "truncating to 500 lines" in captured.err
+
+    def test_test_context_nonexistent_file_warning(
+        self, temp_file_with_content, capsys
+    ):
+        """When test context file doesn't exist, warning should be printed and review proceeds"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=["/nonexistent/test/file.py"],
+            )
+
+            # Verify warning was printed to stderr
+            captured = capsys.readouterr()
+            assert "Warning: Test context file not found" in captured.err
+            assert "/nonexistent/test/file.py" in captured.err
+
+            # Verify the review still proceeded (user message has source)
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "def foo():" in user_message
+
+    def test_multiple_test_context_files(self, temp_file_with_content):
+        """Multiple test context files should all be included in user message"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+        test_file_1 = temp_file_with_content(
+            "def test_foo():\n    pass", suffix="_1.test.py"
+        )
+        test_file_2 = temp_file_with_content(
+            "def test_bar():\n    pass", suffix="_2.test.py"
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=[test_file_1, test_file_2],
+            )
+
+            # Verify both test files are in the user message
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "def test_foo():" in user_message
+            assert "def test_bar():" in user_message
+            assert f"Existing test file: {test_file_1}" in user_message
+            assert f"Existing test file: {test_file_2}" in user_message
+
+    def test_no_test_context_with_test_suggestions_category(
+        self, temp_file_with_content
+    ):
+        """When no test context and category is test-suggestions, include 'no test files' notice"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="test-suggestions",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=None,
+            )
+
+            # Verify the user message includes the "no test files" notice
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "No existing test files found for this source file." in user_message
+
+    def test_no_test_context_with_other_category(self, temp_file_with_content):
+        """When no test context and category is not test-suggestions, no extra notice"""
+        source_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps([])
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            review_file(
+                file_path=source_file,
+                category="logic-errors",
+                language="generic",
+                api_key="test-key",
+                base_url="https://api.example.com/",
+                model="test-model",
+                test_context_paths=None,
+            )
+
+            # Verify no "no test files" notice for non-test-suggestions categories
+            create_call = mock_client.chat.completions.create.call_args
+            user_message = create_call.kwargs["messages"][1]["content"]
+            assert "No existing test files found" not in user_message
+            # But source should still be there
+            assert "def foo():" in user_message

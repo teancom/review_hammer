@@ -1,6 +1,6 @@
 # Prompts - Language-Specific Review Templates
 
-Last verified: 2026-03-11
+Last verified: 2026-03-13
 
 ## Purpose
 Provides structured prompt templates that turn a generic LLM into a specialist
@@ -12,7 +12,8 @@ code reviewer for a specific language and bug category.
   - Each template has a preamble (output format instructions) and `## category-name` sections
   - Preamble defines the JSON finding schema (lines, severity, category, description, impact, confidence)
   - Production categories: race-conditions, null-safety (or variant), resource-leaks, logic-errors, error-handling, state-management
-  - Test categories: testing-nothing, missing-assertions, over-mocking, brittle-tests, missing-edge-cases
+  - Test categories: testing-nothing, missing-assertions, over-mocking, brittle-tests
+  - Test suggestion category: test-suggestions (used by test-suggester agent, receives test file context)
 - **Expects**: Called via `extract_category_prompt()` in review_file.py which splits on `## ` headings
 
 ## Dependencies
@@ -24,7 +25,7 @@ code reviewer for a specific language and bug category.
 - Generic template as fallback: Covers unknown file extensions with language-agnostic patterns
 
 ## Invariants
-- Every language template must have all 11 category headings (6 production + 5 test)
+- Every language template must have all 11 category headings (6 production + 4 test + 1 test-suggestions)
 - Heading format must be exactly `## category-name` (used for extraction)
 - Template filenames must match language keys in EXTENSION_MAP + "generic"
 

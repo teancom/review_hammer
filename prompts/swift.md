@@ -237,21 +237,31 @@ Look for:
 
 ---
 
-## missing-edge-cases
+## test-suggestions
 
-**Focus:** Find tests covering only happy path, missing boundaries and error cases.
+You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.
 
-Look for:
-- No test for nil input (empty Array, empty String, nil Optional)
-- No test for boundary values (0, -1, max values, single items)
-- No test for error/exception paths
-- No test for concurrent execution (in concurrent code)
-- No test for cancellation and timeouts in async code
-- Single test case where multiple behaviors exist
+**Output format:** Same JSON array as other categories. In the `description` field, explain WHAT to test and WHY it matters — not how to implement the test. The `category` field must be `"test-suggestions"`.
 
-**DO NOT REPORT:**
-- Edge cases impossible given Swift's type system
-- Edge cases handled by called functions with their own tests
-- Exploratory/example tests not meant to be exhaustive
-- Tests for trivial functions where edge cases don't differ
-- Compile-time type system constraints and safety
+**IMPORTANT:** Return at most 3 suggestions. If fewer than 3 are warranted, return fewer. If nothing is worth suggesting, return `[]`.
+
+**WHAT TO SUGGEST** (in priority order):
+
+1. **State transition coverage** — Code with distinct states (enums with associated values, state machines) where transitions between states are not tested. Focus on transitions that change observable behavior.
+2. **Error path coverage** — Error handling paths (do/try/catch, Result types, throwing functions) with no corresponding error-case tests. Prioritize paths where the error transforms data or has side effects.
+3. **Business logic boundaries** — Domain-specific boundary conditions where behavior changes (thresholds, limits, mode switches). The boundary must be in THIS code, not in a called function.
+4. **Integration seam tests** — Boundaries between components where one side makes assumptions about the other's behavior (protocol implementations, delegate contracts, notification payloads). Focus on assumptions that could silently diverge.
+5. **Property-based test opportunities** — Functions with clear invariants: roundtrip Codable encode/decode, idempotency, commutativity. Only suggest when the invariant is non-trivial and not already covered.
+
+**DO NOT SUGGEST:**
+
+- Tests that validate Swift language semantics (optionals can be nil, value types have copy semantics, protocol conformance)
+- Tests for trivial computed properties with no logic
+- Tests for `Codable` conformance on simple structs with standard types
+- Tests for `Equatable`/`Hashable`/`CustomStringConvertible` on simple types
+- Tests that merely exercise code for coverage without meaningful assertions
+- Tests for SwiftUI view body rendering with no logic (pure declarative views)
+- Tests for framework-provided behavior (URLSession basics, CoreData fetch requests)
+- Tests for pure data structures with no methods
+- Tests already covered in the existing test file(s) provided as context
+- Tests that only verify a function "doesn't throw" without checking the result

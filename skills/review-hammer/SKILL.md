@@ -58,7 +58,7 @@ When the target is a directory:
 
 5. **Confirm large repos (AC6.3):**
    - If more than 100 files are found, present a confirmation flow to the user:
-     - Calculate estimated API calls: `file_count × 6` (assuming 6 categories per file)
+     - Calculate estimated API calls: `(file_count × 6) + production_file_count` (6 categories per file for file-reviewer agents, plus 1 test-suggester per production file), or simplify to `file_count × 7` as upper bound
      - Format message:
        ```
        This target contains {file_count} reviewable files, which will require approximately {api_calls} API calls.
@@ -108,6 +108,35 @@ For each enumerated file:
 3. **Store the mapping:**
    - Create a list of tuples: `(absolute_path, detected_language, filename)`
 
+## Phase 3.5: Test File Discovery
+
+For each production file discovered in Phase 3, discover companion test files using convention-based pairing:
+
+1. **Test file discovery rules by language:**
+
+   | Language | Production File | Test File Pattern(s) |
+   |----------|----------------|---------------------|
+   | Rust | `src/foo.rs` | `tests/foo.rs`, `src/foo_test.rs` |
+   | Python | `foo.py` | `test_foo.py`, `tests/test_foo.py`, `foo_test.py` |
+   | Go | `foo.go` | `foo_test.go` (same directory) |
+   | TypeScript/JS | `foo.ts` | `foo.test.ts`, `foo.spec.ts`, `__tests__/foo.test.ts` |
+   | Java/Kotlin | `Foo.java` | `FooTest.java`, `FooSpec.java` (in test source tree) |
+   | Others | `foo.ext` | `test_foo.ext`, `foo_test.ext`, `foo.test.ext` |
+
+2. **For each production file, use the Glob tool (not Bash) to search for test files:**
+   - Extract the base filename without extension
+   - Search the repository root and common test directories
+   - Collect all matching test file paths
+   - Store the result as `(absolute_path, detected_language, filename, test_files_csv_or_none)`
+   - For production files with no companion test files, set `test_files_csv_or_none` to `None`
+   - For production files with companion test files, set to a comma-separated list of absolute paths
+
+3. **Exclude test files from the file-reviewer queue:**
+   - Separate files into two categories:
+     - **Production files:** Files that are not test files (proceed to Phase 4 for agent dispatch)
+     - **Test files:** Files discovered as companions to production files (these are analyzed only by test-suggester agents, not file-reviewer agents)
+   - Note: Any test files that exist in the initial enumeration but are NOT companions of a production file (orphan test files) may be reviewed by file-reviewer agents
+
 ## Phase 4: Agent Dispatch
 
 Dispatch specialized reviewer agents with concurrency control:
@@ -128,21 +157,46 @@ Dispatch specialized reviewer agents with concurrency control:
    - Strip any trailing slash/newline and store as `plugin_root`
    - If no result, report error: "Review Hammer plugin not installed. Run: /plugin install review-hammer@review-hammer-marketplace"
 
-4. **For each file, invoke the Agent tool:**
+4. **Build combined work queue:**
+   - Create a queue of agent tasks from Phase 3.5 results
+   - For each **production file** from Phase 3.5:
+     - Add a file-reviewer agent task to the queue
+     - Also add a test-suggester agent task to the queue
+   - For each **test file** (orphan test files not paired to a production file):
+     - Add a file-reviewer agent task to the queue
+   - Queue should interleave agent types to maximize concurrency. Example with 2 production files and batch size 2:
+     ```
+     Batch 1: [file-reviewer(prod1), test-suggester(prod1)]
+     Batch 2: [file-reviewer(prod2), test-suggester(prod2)]
+     ```
+
+5. **Invoke agents from combined queue:**
+
+   **For file-reviewer agents:**
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
    prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}"
    ```
-   - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
 
-5. **Batch dispatch with concurrency control:**
-   - Dispatch agents in batches using the concurrency limit from step 1
+   **For test-suggester agents (production files only):**
+   ```
+   subagent_type: "review-hammer:test-suggester"
+   description: "Test suggestions for {filename}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nTEST_FILES: {test_files_csv_or_none}"
+   ```
+   - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
+   - For test-suggester, pass `TEST_FILES` as a comma-separated list of absolute paths, or empty/None if no test files found
+
+6. **Batch dispatch with concurrency control:**
+   - Dispatch agents from the combined queue in batches using the concurrency limit from step 1
+   - Each batch contains the next N agents from the queue (where N is the concurrency limit)
    - Wait for all agents in a batch to complete before dispatching the next batch
    - Collect the JSON output from each agent as it completes
 
-5. **Expected output from each agent:**
-   - JSON structure with fields like `findings`, `file`, `language`, `is_test`, `categories_run`, `categories_with_findings`
+7. **Expected output from each agent:**
+   - **file-reviewer output:** JSON structure with fields like `findings`, `file`, `language`, `is_test`, `categories_run`, `categories_with_findings`
+   - **test-suggester output:** JSON structure with findings where `category: "test-suggestions"` (same schema as file-reviewer)
    - Each finding includes: `lines` (array of [start_line, end_line]), `severity`, `category`, `description`, `impact`, `confidence`
    - Per-specialist error handling: If a specialist times out or fails for a file, that file's review is noted as incomplete but other files continue processing
 
@@ -154,6 +208,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
 
 - Compare findings across all agents and files
 - If two or more findings reference the same line range in the same file with similar descriptions, merge them
+- **Important:** Test suggestions have `category: "test-suggestions"` and should not be deduplicated against bug findings from other categories. Only deduplicate test suggestions against each other (same file, similar description).
 - For merged findings, create a `flagged_by` array listing which categories detected it:
   ```
   "flagged_by": ["logic-errors", "error-handling"]
@@ -169,6 +224,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
     - Attempt to locate the correct line numbers
     - If correction is possible, update the finding
     - If correction is impossible, discard the finding
+- For test suggestions: Verify test suggestion line references the same way as bug findings.
 
 ### 5c. False Positive Filtering (AC5.3 partial)
 
@@ -178,6 +234,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
   - Are there framework/library patterns that make this code safe?
   - Is the issue only theoretical or does it have real impact?
 - Remove findings that are clearly false positives
+- For test suggestions: Apply the DO NOT SUGGEST criteria from the prompt template. Remove suggestions for language-level trivia.
 
 ### 5d. Cross-File Pattern Detection (AC5.3)
 
@@ -186,6 +243,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
 - **Systemic patterns:** Report once with an affected file list instead of individually
   - Example: "Missing null checks in list iteration" → affected files: `service1.py`, `service2.py`, `handler.py`, ...
 - **Unique per-file findings:** Keep separate and report individually
+- **Test suggestions:** Treat separately from bug findings (do not group with systemic patterns from bug categories)
 
 ### 5e. Severity Ranking (AC5.4)
 
@@ -194,6 +252,7 @@ After all agents complete, perform these steps as Opus to synthesize findings:
   - **High**
   - **Medium**
 - Within the same severity level, sort by confidence (highest first)
+- Include test suggestions in the overall ranking, but present them in a separate report section (see Phase 6, Change 2)
 
 ## Phase 6: Report Formatting
 
@@ -204,7 +263,7 @@ Present the final report using this markdown template:
 
 **Target:** {target_path}
 **Files reviewed:** {total_file_count}
-**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium)
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
 
 ## Critical
 
@@ -250,6 +309,24 @@ Present the final report using this markdown template:
 ### [Finding Title]
 ...
 
+## Test Suggestions
+
+### [Suggestion Title]
+**File:** `path/to/file.py:123-125`
+**Severity:** high
+**Confidence:** 0.85
+
+[Description of what to test and why it matters]
+
+**Impact:** [What risk exists without this test]
+
+**Code context:**
+```{language}
+[actual code at those lines]
+```
+
+---
+
 ## Systemic Patterns
 
 ### [Pattern Name]
@@ -260,7 +337,7 @@ Present the final report using this markdown template:
 
 ---
 
-*Reviewed by {agent_count} specialists across {file_count} files. {false_positive_count} false positives removed.*
+*Reviewed by {agent_count} specialists across {file_count} files. {false_positive_count} false positives removed. {suggestion_count} test suggestions generated.*
 ```
 
 ## Acceptance Criteria Coverage

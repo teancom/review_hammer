@@ -26,6 +26,7 @@ def temp_file_with_content(tmp_path):
     Returns:
         A function that creates a temp file with the given content
     """
+
     def _create(content: str, suffix: str = ".py") -> str:
         temp_file = tmp_path / f"temp_file{suffix}"
         temp_file.write_text(content)

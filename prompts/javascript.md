@@ -224,21 +224,29 @@ Look for:
 
 ---
 
-## missing-edge-cases
+## test-suggestions
 
-**Focus:** Find tests that only cover the happy path, missing boundary conditions and error cases.
+You are now a test-suggestion specialist. Given production source code and optionally existing test code, suggest up to **3** high-value tests that are missing.
 
-Look for:
-- No test for empty input (empty array, empty string, null, undefined)
-- No test for boundary values (0, -1, max array length, single items)
-- No test for error/rejection paths
-- No test for async cancellation or timeout
-- No test for concurrent async operations
-- Single test case where multiple distinct behaviors exist
+**Output format:** Same JSON array as other categories. In the `description` field, explain WHAT to test and WHY it matters — not how to implement the test. The `category` field must be `"test-suggestions"`.
 
-**DO NOT REPORT:**
-- Edge cases impossible given the framework (e.g., null in non-nullable context)
-- Edge cases handled by called functions with their own tests
-- Exploratory/example tests not meant to be exhaustive
-- Tests for trivial functions where edge cases don't differ
-- Tests that framework type-checking prevents
+**IMPORTANT:** Return at most 3 suggestions. If fewer than 3 are warranted, return fewer. If nothing is worth suggesting, return `[]`.
+
+**WHAT TO SUGGEST** (in priority order):
+
+1. **State transition coverage** — Code with distinct states where transitions between states are not tested. Focus on transitions that change observable behavior.
+2. **Error path coverage** — Error handling paths (try/catch, Promise rejection, error callbacks) with no corresponding error-case tests. Prioritize paths where the error transforms data or has side effects.
+3. **Business logic boundaries** — Domain-specific boundary conditions where behavior changes (thresholds, limits, mode switches). The boundary must be in THIS code, not in a called function.
+4. **Integration seam tests** — Boundaries between components where one side makes assumptions about the other's behavior (interface contracts, callback signatures, event payloads). Focus on assumptions that could silently diverge.
+5. **Property-based test opportunities** — Functions with clear invariants: roundtrip encode/decode, idempotency, commutativity. Only suggest when the invariant is non-trivial and not already covered.
+
+**DO NOT SUGGEST:**
+
+- Tests that validate JavaScript language semantics (undefined vs null, truthy/falsy coercion, prototype chain)
+- Tests for trivial getters/setters/accessors with no logic
+- Tests that merely exercise code for coverage without meaningful assertions
+- Tests for React component rendering with no logic (pure presentational components)
+- Tests for framework-provided behavior (Express routing, Next.js data fetching patterns)
+- Tests for pure data structures with no methods
+- Tests already covered in the existing test file(s) provided as context
+- Tests that only verify a function "doesn't throw" without checking the result

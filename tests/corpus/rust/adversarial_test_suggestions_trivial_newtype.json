@@ -1,0 +1,7 @@
+{
+    "type": "adversarial",
+    "category": "test-suggestions",
+    "language": "rust",
+    "description": "Newtype wrappers with derived traits and trivial accessors — tempts suggestions for testing Default/From/Display but all should be suppressed",
+    "expect_empty": true
+}
