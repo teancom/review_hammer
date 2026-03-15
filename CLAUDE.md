@@ -65,12 +65,7 @@ The plugin implements two multi-agent pipelines sharing the same backend:
 - No venv needed — `uv run` handles dependencies via PEP 723 inline metadata
 
 ## Releasing Changes
-When changing any plugin-facing file (skills, agents, hooks, scripts), bump the version FIRST:
-1. Bump `version` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (must match)
-2. Make your changes
-3. Commit everything together
-
-Do the version bump before editing other files so examples and references stay consistent.
+When changing any plugin-facing file (scripts/, prompts/, agents/, skills/, hooks/), bump the version in both `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (must match). A PreToolUse hook (`.claude/hooks/enforce-version-bump.sh`) enforces this at commit time — it will block if plugin-facing files are staged without a matching version bump.
 
 ## Conventions
 - Prompt templates use `## category-name` headings for section extraction
