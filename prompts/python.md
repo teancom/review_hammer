@@ -239,6 +239,7 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for trivial `__init__` assignment (`self.x = x`)
 - Tests for dataclass/attrs/pydantic default values or field types
 - Tests for trivial properties/getters/setters with no logic
+- Tests for single-expression functions with no branching (e.g., 1:1 dict/match mappings, chained string methods like `.strip().lower()`, simple boolean conditions like `a is not None or b is not None`) — these test language primitives, not application logic
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for `__repr__`/`__str__` output formatting on simple classes
 - Tests for framework-provided behavior (Django ORM basic CRUD, Flask routing)

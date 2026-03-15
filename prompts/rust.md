@@ -269,6 +269,7 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests that duplicate what the type system or borrow checker enforces (type conversions, ownership rules, lifetime correctness)
 - Tests for trivial `Default`, `From`, `Into`, `Display`, or `Debug` implementations on newtypes or simple structs
 - Tests for trivial getters/setters/accessors with no logic
+- Tests for single-expression functions with no branching (e.g., 1:1 `match` enum-to-string mappings, chained standard library string methods like `trim_end_matches`, simple boolean conditions like `a.is_some() || b.is_some()`) — these test language primitives, not application logic
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for `Clone`, `PartialEq`, `Hash`, or other derived trait implementations
 - Tests for framework-provided behavior (`serde` serialization of simple structs, `clap` argument parsing). This includes `serde` roundtrips on structs with `Option<T>` fields using `skip_serializing_if` or `default` — these are standard serde patterns, not custom logic

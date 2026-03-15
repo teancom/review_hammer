@@ -239,6 +239,7 @@ You are now a test-suggestion specialist. Given production source code and optio
 
 - Tests that validate C language semantics (pointer arithmetic rules, integer promotion, struct padding)
 - Tests for trivial struct field access with no logic
+- Tests for single-expression functions with no branching (e.g., 1:1 switch-to-value mappings, chained string operations, simple boolean conditions like `a != NULL || b != NULL`) — these test language primitives, not application logic
 - Tests for simple macro definitions with no conditional logic
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for standard library function usage (strlen, memcpy basic patterns)

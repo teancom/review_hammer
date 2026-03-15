@@ -256,6 +256,7 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests for `errors.Is`/`errors.As` on standard error types
 - Tests for interface satisfaction (compiler checks this)
 - Tests for trivial struct field access with no logic
+- Tests for single-expression functions with no branching (e.g., 1:1 switch-to-value mappings, chained `strings.Trim*` calls, simple boolean conditions like `a != nil || b != nil`) — these test language primitives, not application logic
 - Tests for `String()` methods on simple types
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for `json.Marshal`/`json.Unmarshal` on simple structs with standard tags

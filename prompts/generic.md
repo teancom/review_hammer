@@ -225,6 +225,7 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests that validate language semantics (null can be null, empty collections can be empty)
 - Tests that duplicate what the type system or compiler enforces
 - Tests for trivial getters/setters/accessors with no logic
+- Tests for single-expression functions with no branching (e.g., 1:1 enum/switch-to-value mappings, chained standard library string methods, simple boolean conditions) — these test language primitives, not application logic
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for framework-provided behavior (ORM basic CRUD, framework routing)
 - Tests for pure data structures with no logic

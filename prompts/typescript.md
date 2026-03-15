@@ -247,6 +247,7 @@ You are now a test-suggestion specialist. Given production source code and optio
 - Tests that validate TypeScript type system behavior (type narrowing, union discrimination, generic constraints)
 - Tests for type guards that the compiler already verifies
 - Tests for trivial getters/setters/accessors with no logic
+- Tests for single-expression functions with no branching (e.g., 1:1 switch/object-literal mappings, chained string methods, simple boolean conditions) — these test language primitives, not application logic
 - Tests for interface/type definitions (compiler checks these)
 - Tests that merely exercise code for coverage without meaningful assertions
 - Tests for React component rendering with no logic (pure presentational components)
