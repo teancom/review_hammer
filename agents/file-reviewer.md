@@ -62,6 +62,8 @@ Otherwise it is a production file.
 
 ### 3. Run Each Category
 
+**IMPORTANT: Run categories ONE AT A TIME, sequentially. Do NOT run multiple categories in parallel. Wait for each command to complete before starting the next.** This is critical for API rate limiting — the orchestrator controls concurrency at the agent level, so each agent must only have one API call in flight at a time.
+
 For each category, run this exact command pattern via Bash:
 
 ```
