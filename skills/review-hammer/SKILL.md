@@ -2,7 +2,6 @@
 name: review-hammer
 description: High-precision code review using specialized LLM agents. Use when user wants to review code for bugs across a file, directory, or repo. Dispatches category-specialized reviewers and presents a deduplicated, severity-ranked report.
 user-invocable: true
-disable-model-invocation: true
 argument-hint: <file-or-directory-path>
 ---
 

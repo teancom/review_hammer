@@ -2,7 +2,6 @@
 name: test-hammer
 description: Suggests high-value tests for production code by pairing it with existing test files and analyzing gaps. Use when user wants test suggestions for a file, directory, or repo.
 user-invocable: true
-disable-model-invocation: true
 argument-hint: <file-or-directory-path>
 ---
 
