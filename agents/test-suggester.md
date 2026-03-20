@@ -22,8 +22,9 @@ You will receive a prompt containing:
 - `LANGUAGE:` — the programming language
 - `PLUGIN_ROOT:` — the absolute path to the plugin directory (use this in commands)
 - `TEST_FILES:` — comma-separated paths to existing test files, or "none"
+- `DIFF_BASE:` — (optional) git ref to diff against. When provided, review_file.py reviews only changed hunks. When "none" or absent, full file is reviewed. Note: test-hammer currently always omits this, but the plumbing exists for future use.
 
-Parse these four values from the prompt text.
+Parse these five values from the prompt text. DIFF_BASE may be absent — treat it as "none" if not found.
 
 ## Process
 
@@ -31,17 +32,21 @@ Parse these four values from the prompt text.
 
 Construct the review command:
 
+**If DIFF_BASE is "none" or was not provided:**
+
 ```
 timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45
 ```
 
-If `TEST_FILES` is NOT "none", append `--test-context` for each test file path:
+**If DIFF_BASE is provided (not "none"):**
 
 ```
-timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45 --test-context TEST_FILE_1 --test-context TEST_FILE_2
+timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45 --diff-base DIFF_BASE
 ```
 
-Replace `PLUGIN_ROOT`, `FILE_PATH`, `LANGUAGE`, and `TEST_FILE_*` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.
+If `TEST_FILES` is NOT "none", append `--test-context` for each test file path to whichever command variant above applies.
+
+Replace `PLUGIN_ROOT`, `FILE_PATH`, `LANGUAGE`, `DIFF_BASE`, and `TEST_FILE_*` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.
 
 ### 2. Execute
 
