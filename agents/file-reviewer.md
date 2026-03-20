@@ -22,8 +22,9 @@ You will receive a prompt containing:
 - `FILE_PATH:` — the path to the file to review
 - `LANGUAGE:` — the programming language
 - `PLUGIN_ROOT:` — the absolute path to the plugin directory (use this in commands)
+- `DIFF_BASE:` — (optional) git ref to diff against. When provided, review_file.py reviews only changed hunks. When "none" or absent, full file is reviewed.
 
-Parse these three values from the prompt text.
+Parse these values from the prompt text. DIFF_BASE may be absent — treat it as "none" if not found.
 
 ## Process
 
@@ -66,15 +67,28 @@ Otherwise it is a production file.
 
 For each category, run this exact command pattern via Bash:
 
+**If DIFF_BASE is "none" or was not provided:**
 ```
 timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE --timeout 45
 ```
 
-Replace `PLUGIN_ROOT`, `FILE_PATH`, `CATEGORY`, and `LANGUAGE` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.
+**If DIFF_BASE is provided (not "none"):**
+```
+timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE --timeout 45 --diff-base DIFF_BASE
+```
 
-**Example** (if PLUGIN_ROOT is `/Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0`):
+Replace `PLUGIN_ROOT`, `FILE_PATH`, `CATEGORY`, `LANGUAGE`, and `DIFF_BASE` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.
+
+**Examples** (if PLUGIN_ROOT is `/Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0`):
+
+Without diff-base:
 ```
 timeout 300 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python --timeout 45
+```
+
+With diff-base (DIFF_BASE is `main`):
+```
+timeout 300 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python --timeout 45 --diff-base main
 ```
 
 **For each invocation:**
