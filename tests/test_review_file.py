@@ -463,15 +463,39 @@ class TestSplitIntoChunks:
             chunk_overlap=CHUNK_OVERLAP,
         )
 
-        if len(result) > 1:
-            # Get the last few lines of first chunk (after header)
-            first_chunk_lines = result[0].split("\n")
+        assert len(result) > 1, "Content should be split into multiple chunks"
 
-            # Extract overlapping content from first chunk (last CHUNK_OVERLAP lines of content)
-            first_chunk_overlap_start = len(first_chunk_lines) - CHUNK_OVERLAP
+        # For each pair of consecutive chunks, verify overlap
+        for i in range(len(result) - 1):
+            first_chunk_lines = result[i].split("\n")
+            second_chunk_lines = result[i + 1].split("\n")
 
-            # Verify some overlap exists
-            assert first_chunk_overlap_start >= 0
+            # Extract content (strip header lines)
+            # Header is: "import os\n\n" which is 1 header line + 1 blank line
+            header_lines = (
+                len(header.splitlines()) + 1
+            )  # +1 for blank line after header
+
+            first_chunk_content_lines = first_chunk_lines[header_lines:]
+            second_chunk_content_lines = second_chunk_lines[header_lines:]
+
+            # Last CHUNK_OVERLAP lines of first chunk should match
+            # first CHUNK_OVERLAP lines of second chunk (after stripping headers)
+            overlap_from_first = first_chunk_content_lines[-CHUNK_OVERLAP:]
+            overlap_from_second = second_chunk_content_lines[:CHUNK_OVERLAP]
+
+            # Verify the overlap exists (at least some overlap)
+            assert len(overlap_from_first) > 0, (
+                "First chunk should have overlap content"
+            )
+            assert len(overlap_from_second) > 0, (
+                "Second chunk should have overlap content"
+            )
+            # Verify they match for the length of the shorter overlap
+            overlap_len = min(len(overlap_from_first), len(overlap_from_second))
+            assert (
+                overlap_from_first[-overlap_len:] == overlap_from_second[:overlap_len]
+            )
 
     def test_prefers_blank_line_split_points(self):
         """Should prefer blank lines between functions as split points"""
@@ -2365,10 +2389,11 @@ class TestChunkedReview:
                 )
 
                 # Check stderr for chunk logs
+                # Content is CHUNK_THRESHOLD + 500 lines so chunking always triggers
                 captured = capsys.readouterr()
-                if "[review] CHUNK" in captured.err:
-                    # If chunking happened, should see chunk logs
-                    assert "CHUNK" in captured.err
+                assert "[review] CHUNK 1/" in captured.err
+                # Verify we see multiple chunks (at least 2)
+                assert "[review] CHUNK 2/" in captured.err
 
     def test_deduplicated_findings_from_chunks(self, temp_file_with_content):
         """Findings from overlapping chunk regions should be deduplicated"""
@@ -2388,19 +2413,26 @@ class TestChunkedReview:
             [{"lines": "401", "severity": "medium", "category": "logic-errors"}]
         )
 
-        mock_response3 = MagicMock()
-        mock_response3.choices[0].message.content = "[]"
+        mock_response_empty = MagicMock()
+        mock_response_empty.choices[0].message.content = "[]"
 
         with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
             with patch("review_file.OpenAI") as mock_openai_class:
                 mock_client = MagicMock()
                 mock_openai_class.return_value = mock_client
-                # Return different responses for different calls (one per chunk)
-                mock_client.chat.completions.create.side_effect = [
-                    mock_response1,
-                    mock_response2,
-                    mock_response3,
-                ]
+
+                # Create a function to return the appropriate mock based on call count
+                responses = [mock_response1, mock_response2]
+                call_count = [0]
+
+                def side_effect_fn(*args, **kwargs):
+                    if call_count[0] < len(responses):
+                        result = responses[call_count[0]]
+                        call_count[0] += 1
+                        return result
+                    return mock_response_empty
+
+                mock_client.chat.completions.create.side_effect = side_effect_fn
 
                 result = review_file(
                     file_path=temp_file,

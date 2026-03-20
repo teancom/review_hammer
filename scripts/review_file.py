@@ -45,6 +45,9 @@ CHUNK_THRESHOLD = 500
 # Overlap lines between adjacent chunks (ensures findings near boundaries aren't lost)
 CHUNK_OVERLAP = 20
 
+# Severity ordering for deduplication (higher value = higher severity)
+SEVERITY_ORDER = {"critical": 3, "high": 2, "medium": 1}
+
 
 def parse_retry_after(value: str) -> Optional[float]:
     """
@@ -341,13 +344,12 @@ def split_into_chunks(
         chunk_end = min(chunk_start + target_chunk_size, total_lines)
 
         # Try to find a blank line near the target end for a natural boundary
-        # Search ±20 lines from the target
-        search_window = 20
+        # Search ±chunk_overlap lines from the target
         best_split = chunk_end
 
         if chunk_end < total_lines:  # Don't search if at the end
-            search_start = max(chunk_start, chunk_end - search_window)
-            search_end = min(total_lines, chunk_end + search_window)
+            search_start = max(chunk_start, chunk_end - chunk_overlap)
+            search_end = min(total_lines, chunk_end + chunk_overlap)
 
             for i in range(search_end - 1, search_start - 1, -1):
                 if i < total_lines and content_lines[i].strip() == "":
@@ -367,9 +369,7 @@ def split_into_chunks(
         chunks.append(chunk)
 
         # For next chunk, start with overlap
-        chunk_start = best_split - chunk_overlap
-        if chunk_start < chunk_end:
-            chunk_start = chunk_end
+        chunk_start = max(best_split - chunk_overlap, chunk_start + 1)
 
     return chunks
 
@@ -450,11 +450,10 @@ def deduplicate_findings(all_findings: list[list]) -> list:
                 is_duplicate = True
 
                 # Compare severity and potentially replace
-                severity_order = {"critical": 3, "high": 2, "medium": 1}
-                finding_severity = severity_order.get(
+                finding_severity = SEVERITY_ORDER.get(
                     finding.get("severity", "medium"), 0
                 )
-                kept_severity = severity_order.get(kept.get("severity", "medium"), 0)
+                kept_severity = SEVERITY_ORDER.get(kept.get("severity", "medium"), 0)
 
                 if finding_severity > kept_severity:
                     # Replace kept with finding
