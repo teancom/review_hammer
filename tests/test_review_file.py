@@ -11,6 +11,7 @@ Verifies:
 import email.utils
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -31,6 +32,10 @@ from review_file import (
     build_diff_user_message,
     DIFF_PARTIAL_INSTRUCTIONS,
     DIFF_FULL_WITH_MARKERS_INSTRUCTIONS,
+    parse_unified_diff,
+    extract_file_header,
+    assemble_diff_context,
+    MAX_HEADER_LINES,
 )
 from openai import (
     RateLimitError,
@@ -871,6 +876,67 @@ class TestRetryAndBackoff:
                     assert wait == 5.0
 
 
+class TestGitDiffErrorHandling:
+    """Test error handling for git diff subprocess calls (Critical)"""
+
+    def test_invalid_diff_base_ref_raises_value_error(self, temp_file_with_content):
+        """Invalid git ref to --diff-base should raise descriptive ValueError"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+
+            with patch("review_file.subprocess.run") as mock_run:
+                # Simulate git diff failure with invalid ref
+                mock_run.side_effect = subprocess.CalledProcessError(
+                    returncode=128,
+                    cmd=["git", "diff", "invalid-ref", "--", temp_file],
+                    stderr="fatal: bad revision 'invalid-ref'",
+                )
+
+                with pytest.raises(ValueError) as exc_info:
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="generic",
+                        api_key="test-key",
+                        base_url="https://api.example.com/",
+                        model="test-model",
+                        diff_base="invalid-ref",
+                    )
+
+                # Error message should include the ref and stderr
+                assert "invalid-ref" in str(exc_info.value)
+                assert "fatal: bad revision" in str(exc_info.value)
+
+    def test_diff_base_none_skips_git_diff(self, temp_file_with_content):
+        """When diff_base is None, git diff should not be called"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        with patch("review_file.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_openai_class.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_response
+
+            with patch("review_file.subprocess.run") as mock_run:
+                review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="generic",
+                    api_key="test-key",
+                    base_url="https://api.example.com/",
+                    model="test-model",
+                    diff_base=None,
+                )
+
+                # subprocess.run should not be called when diff_base is None
+                mock_run.assert_not_called()
+
+
 class TestParseRetryAfter:
     """Test RFC 7231 Retry-After header parsing"""
 
@@ -1116,8 +1182,6 @@ class TestParseUnifiedDiff:
 +    return 42
 
 """
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff(diff)
 
         assert len(result) == 1
@@ -1137,8 +1201,6 @@ class TestParseUnifiedDiff:
 -    pass
 +    return 1
 """
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff(diff)
 
         assert len(result) == 2
@@ -1155,8 +1217,6 @@ class TestParseUnifiedDiff:
  def baz():
 +    x = 1
 """
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff(diff)
 
         assert len(result) == 1
@@ -1165,8 +1225,6 @@ class TestParseUnifiedDiff:
 
     def test_empty_diff_returns_empty_list(self):
         """Empty diff output returns empty list"""
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff("")
 
         assert result == []
@@ -1182,8 +1240,6 @@ class TestParseUnifiedDiff:
 +def another():
 +    pass
 """
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff(diff)
 
         # New files have @@ -0,0 +1,5 @@ which means start_line=0, count=0
@@ -1200,8 +1256,6 @@ class TestParseUnifiedDiff:
 @@ -5,5 +5,5 @@
 @@ -20,3 +20,3 @@
 """
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff(diff)
 
         assert len(result) == 2
@@ -1222,8 +1276,6 @@ class TestParseUnifiedDiff:
 +new line 3
  old line 102
 """
-        from review_file import parse_unified_diff
-
         result = parse_unified_diff(diff)
 
         assert len(result) == 1
@@ -1237,8 +1289,6 @@ class TestExtractFileHeader:
 
     def test_python_with_imports_then_def(self):
         """Python file with imports and def should extract only imports"""
-        from review_file import extract_file_header
-
         source = """import os
 import sys
 from pathlib import Path
@@ -1258,8 +1308,6 @@ class Bar:
 
     def test_rust_with_use_then_fn(self):
         """Rust file with use statements then fn should extract only use statements"""
-        from review_file import extract_file_header
-
         source = """use std::collections::HashMap;
 use std::io;
 
@@ -1279,8 +1327,6 @@ fn helper() {
 
     def test_file_with_no_definitions(self):
         """File with no function/class definitions should return entire file (capped)"""
-        from review_file import extract_file_header
-
         source = "# Configuration file\nkey=value\nother=data"
         result = extract_file_header(source)
 
@@ -1288,8 +1334,6 @@ fn helper() {
 
     def test_file_starting_with_def(self):
         """File that starts with def should return empty string"""
-        from review_file import extract_file_header
-
         source = """def foo():
     return 42
 
@@ -1302,16 +1346,12 @@ def bar():
 
     def test_empty_file(self):
         """Empty file should return empty string"""
-        from review_file import extract_file_header
-
         result = extract_file_header("")
 
         assert result == ""
 
     def test_header_exceeding_max_lines_is_capped(self):
         """Header exceeding MAX_HEADER_LINES should be capped"""
-        from review_file import extract_file_header, MAX_HEADER_LINES
-
         # Create a file with 100 lines of imports, then def
         imports = "\n".join([f"import module{i}" for i in range(MAX_HEADER_LINES + 10)])
         source = imports + "\n\ndef foo():\n    pass"
@@ -1324,8 +1364,6 @@ def bar():
 
     def test_whitespace_before_def(self):
         """Function definition with leading whitespace should still be detected"""
-        from review_file import extract_file_header
-
         source = """# Header comment
 import os
 
@@ -1339,8 +1377,6 @@ import os
 
     def test_async_def_detection(self):
         """Async function definitions should be detected"""
-        from review_file import extract_file_header
-
         source = """import asyncio
 
 async def main():
@@ -1361,8 +1397,6 @@ class TestAssembleDiffContext:
 
     def test_single_hunk_with_context(self):
         """Single hunk with context_lines=3 expands by 3 lines above/below"""
-        from review_file import assemble_diff_context
-
         hunks = [{"start_line": 10, "end_line": 12}]
         source = "\n".join([f"line {i}" for i in range(1, 21)])
         result = assemble_diff_context(hunks, source, context_lines=3)
@@ -1377,8 +1411,6 @@ class TestAssembleDiffContext:
 
     def test_two_hunks_close_merge_into_one(self):
         """Two hunks 2 lines apart with context_lines=3 merge into continuous block"""
-        from review_file import assemble_diff_context
-
         hunks = [
             {"start_line": 10, "end_line": 12},
             {"start_line": 15, "end_line": 17},
@@ -1394,8 +1426,6 @@ class TestAssembleDiffContext:
 
     def test_two_hunks_far_apart_have_separator(self):
         """Two hunks far apart should have ... separator"""
-        from review_file import assemble_diff_context
-
         hunks = [
             {"start_line": 5, "end_line": 7},
             {"start_line": 50, "end_line": 52},
@@ -1408,8 +1438,6 @@ class TestAssembleDiffContext:
 
     def test_line_numbers_match_original_file(self):
         """Line numbers in output match original file positions"""
-        from review_file import assemble_diff_context
-
         hunks = [{"start_line": 50, "end_line": 52}]
         source = "\n".join([f"line {i}" for i in range(1, 100)])
         result = assemble_diff_context(hunks, source, context_lines=0)
@@ -1421,8 +1449,6 @@ class TestAssembleDiffContext:
 
     def test_hunk_at_start_of_file(self):
         """Hunk at start of file clamped to line 1"""
-        from review_file import assemble_diff_context
-
         hunks = [{"start_line": 1, "end_line": 3}]
         source = "\n".join([f"line {i}" for i in range(1, 10)])
         result = assemble_diff_context(hunks, source, context_lines=3)
@@ -1434,8 +1460,6 @@ class TestAssembleDiffContext:
 
     def test_hunk_at_end_of_file(self):
         """Hunk at end of file clamped to last line"""
-        from review_file import assemble_diff_context
-
         hunks = [{"start_line": 8, "end_line": 10}]
         source = "\n".join([f"line {i}" for i in range(1, 11)])
         result = assemble_diff_context(hunks, source, context_lines=3)
@@ -1446,8 +1470,6 @@ class TestAssembleDiffContext:
 
     def test_includes_file_header(self):
         """Result includes file header before hunks"""
-        from review_file import assemble_diff_context
-
         hunks = [{"start_line": 10, "end_line": 12}]
         source = """import os
 

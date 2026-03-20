@@ -137,6 +137,93 @@ def prepend_line_numbers(source: str) -> str:
     return "\n".join(numbered)
 
 
+def _annotate_with_diff_markers(source: str, diff_output: str) -> str:
+    """
+    Prepend line numbers to source code and mark changed lines with +/- prefixes.
+
+    Parses the diff output to determine which lines were added (+) or removed (-),
+    then annotates the full source accordingly. Removed lines appear in the diff
+    for context but don't exist in the current file, so this function marks them.
+
+    Args:
+        source: Full file content (current state, without diff markers)
+        diff_output: Raw git diff output
+
+    Returns:
+        Source code with line numbers and diff markers prepended.
+        Format: "{marker}{line_number}| {line_content}"
+        where marker is "", "+", or "-"
+    """
+    source_lines = source.splitlines(keepends=False)
+    if not source_lines:
+        return ""
+
+    # Parse diff to find which original-file lines were changed
+    # We'll track added and removed lines based on the diff
+    added_lines = set()
+    removed_lines = set()
+
+    # Track the current line number in the original file
+    current_old_line = 0
+    current_new_line = 0
+
+    diff_lines = diff_output.split("\n")
+    for diff_line in diff_lines:
+        # Check for hunk header
+        if diff_line.startswith("@@"):
+            # Parse @@ -old_start,old_count +new_start,new_count @@
+            import re as re_module
+
+            match = re_module.match(
+                r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@",
+                diff_line,
+            )
+            if match:
+                current_old_line = int(match.group(1))
+                current_new_line = int(match.group(3))
+            continue
+
+        # Skip diff headers
+        if diff_line.startswith("---") or diff_line.startswith("+++"):
+            continue
+        if diff_line.startswith("diff --git"):
+            continue
+        if diff_line.startswith("index "):
+            continue
+
+        # Process diff content lines
+        if diff_line.startswith("-"):
+            # Line was removed in original file
+            removed_lines.add(current_old_line)
+            current_old_line += 1
+        elif diff_line.startswith("+"):
+            # Line was added in current file
+            added_lines.add(current_new_line)
+            current_new_line += 1
+        elif diff_line.startswith(" "):
+            # Context line (unchanged)
+            current_old_line += 1
+            current_new_line += 1
+        # else: ignore other diff lines
+
+    # Determine width needed for line numbers
+    max_line = len(source_lines)
+    width = len(str(max_line))
+
+    # Prepend line numbers and markers
+    numbered = []
+    for i, line in enumerate(source_lines, start=1):
+        if i in added_lines:
+            marker = "+"
+        elif i in removed_lines:
+            marker = "-"
+        else:
+            marker = " "
+        numbered.append(f"{marker}{i:>{width}}| {line}")
+
+    return "\n".join(numbered)
+
+
 def parse_unified_diff(diff_output: str) -> list[dict]:
     """
     Parse unified diff output and extract hunk ranges.
@@ -231,23 +318,7 @@ def assemble_diff_context(
     source_lines = source.splitlines(keepends=False)
     total_lines = len(source_lines)
 
-    # Expand hunk ranges by context_lines
-    expanded = []
-    for hunk in hunks:
-        start = max(1, hunk["start_line"] - context_lines)
-        end = min(total_lines, hunk["end_line"] + context_lines)
-        expanded.append({"start": start, "end": end})
-
-    # Merge overlapping/adjacent ranges
-    expanded.sort(key=lambda x: x["start"])
-    merged = []
-    for exp in expanded:
-        if merged and exp["start"] <= merged[-1]["end"] + 1:
-            # Overlapping or adjacent, merge
-            merged[-1]["end"] = max(merged[-1]["end"], exp["end"])
-        else:
-            # Not overlapping, add new range
-            merged.append(exp)
+    merged = _expand_and_merge_ranges(hunks, total_lines, context_lines)
 
     # Determine line number width for proper alignment
     max_line_num = total_lines
@@ -281,23 +352,24 @@ def assemble_diff_context(
 FULL_COVERAGE_THRESHOLD = 0.90
 
 
-def detect_coverage(hunks: list[dict], total_lines: int, context_lines: int) -> bool:
+def _expand_and_merge_ranges(
+    hunks: list[dict], total_lines: int, context_lines: int
+) -> list[dict]:
     """
-    Determine if assembled diff covers enough of the file for full-file framing.
+    Expand hunk ranges by context_lines and merge overlapping/adjacent ranges.
 
     Args:
         hunks: List of {"start_line": int, "end_line": int} from parse_unified_diff()
         total_lines: Total lines in the original file
-        context_lines: Context lines used for expansion
+        context_lines: Number of lines to include above and below each hunk
 
     Returns:
-        True if coverage >= FULL_COVERAGE_THRESHOLD (90%), meaning full-file
-        framing should be used instead of partial-view framing.
+        List of merged dicts with keys "start" and "end" representing continuous blocks
     """
-    if not hunks or total_lines == 0:
-        return False
+    if not hunks:
+        return []
 
-    # Expand each hunk range by ±context_lines (same expansion as assemble_diff_context)
+    # Expand hunk ranges by context_lines
     expanded = []
     for hunk in hunks:
         start = max(1, hunk["start_line"] - context_lines)
@@ -314,6 +386,27 @@ def detect_coverage(hunks: list[dict], total_lines: int, context_lines: int) -> 
         else:
             # Not overlapping, add new range
             merged.append(exp)
+
+    return merged
+
+
+def detect_coverage(hunks: list[dict], total_lines: int, context_lines: int) -> bool:
+    """
+    Determine if assembled diff covers enough of the file for full-file framing.
+
+    Args:
+        hunks: List of {"start_line": int, "end_line": int} from parse_unified_diff()
+        total_lines: Total lines in the original file
+        context_lines: Context lines used for expansion
+
+    Returns:
+        True if coverage >= FULL_COVERAGE_THRESHOLD (90%), meaning full-file
+        framing should be used instead of partial-view framing.
+    """
+    if not hunks or total_lines == 0:
+        return False
+
+    merged = _expand_and_merge_ranges(hunks, total_lines, context_lines)
 
     # Count total covered lines
     covered_lines = 0
@@ -373,9 +466,9 @@ def build_diff_user_message(
     use_full_file = detect_coverage(hunks, total_lines, context_lines)
 
     if use_full_file:
-        # Full-file mode: show entire file with numbered lines
-        # The diff output explains which lines changed
-        numbered_source = prepend_line_numbers(source)
+        # Full-file mode: show entire file with numbered lines and diff markers
+        # Annotate with +/- markers showing which lines were changed
+        numbered_source = _annotate_with_diff_markers(source, diff_output)
         return (
             f"# Source file: {file_path}\n\n"
             f"{DIFF_FULL_WITH_MARKERS_INSTRUCTIONS}\n\n"
@@ -552,7 +645,7 @@ def review_file(
 
     Raises:
         FileNotFoundError: If file not found
-        ValueError: If category not found in template
+        ValueError: If category not found in template, or if git diff fails
         AuthenticationError: If API authentication fails (no retry)
         RetryExhaustedError: If all retries exhausted
     """
@@ -579,12 +672,18 @@ def review_file(
     # Build user message based on mode
     if diff_base is not None:
         # Diff mode: run git diff, parse, and assemble context
-        diff_output = subprocess.run(
-            ["git", "diff", diff_base, "--", file_path],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
+        try:
+            result = subprocess.run(
+                ["git", "diff", diff_base, "--", file_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            diff_output = result.stdout
+        except subprocess.CalledProcessError as e:
+            raise ValueError(
+                f"git diff failed for ref '{diff_base}': {e.stderr}"
+            ) from e
 
         hunks = parse_unified_diff(diff_output)
         if not hunks:
