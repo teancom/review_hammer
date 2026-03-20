@@ -1,6 +1,6 @@
 # Review Hammer
 
-Last verified: 2026-03-13
+Last verified: 2026-03-20
 
 ## Tech Stack
 - Python 3.10+ (scripts, tests)
@@ -10,12 +10,12 @@ Last verified: 2026-03-13
 - Claude Code plugin system (hooks, agents, skills, marketplace)
 
 ## Commands
-- `uv run scripts/review_file.py FILE --category CATEGORY` - Run a single review (add `--test-context TEST_FILE` for test-suggestions category)
+- `uv run scripts/review_file.py FILE --category CATEGORY` - Run a single review (add `--test-context TEST_FILE` for test-suggestions category, add `--diff-base REF` for diff-only review)
 - `uv run scripts/test_corpus.py` - Run review calibration tests against corpus files
 - `.venv/bin/pytest tests/` - Run unit tests (dev venv, not used by plugin)
 
 ## Project Structure
-- `scripts/` - Python CLI backend (review_file.py, ensure-venv.sh)
+- `scripts/` - Python CLI backend (review_file.py, calibrate_chunk_threshold.py, ensure-venv.sh)
 - `prompts/` - Language-specific prompt templates (12 languages + generic)
 - `agents/` - Haiku agent definitions (file-reviewer, test-suggester)
 - `skills/` - User-facing skill definitions (/review-hammer, /test-hammer orchestrators)
@@ -39,15 +39,17 @@ Last verified: 2026-03-13
 The plugin implements two multi-agent pipelines sharing the same backend:
 
 ### /review-hammer (code review)
-1. User invokes `/review-hammer <path>` (skill)
-2. Skill enumerates files via Glob (no Bash), detects languages, discovers test file pairings, resolves plugin root from cache directory
-3. Skill dispatches Haiku file-reviewer and test-suggester agents in batches (default 2, configurable via `REVIEWERS_MAX_CONCURRENT`)
-4. Each file-reviewer agent runs 5-6 specialist categories via `uv run review_file.py`
-5. Each test-suggester agent runs the test-suggestions category with `--test-context` for paired test files
-6. `review_file.py` sends file + category prompt to external LLM API, returns JSON findings
-7. Retry logic: respects RFC 7231 Retry-After header (seconds or HTTP-date), falls back to jittered exponential backoff
-8. Opus judge pass deduplicates, verifies line numbers, filters false positives
-9. Final severity-ranked markdown report presented to user
+1. User invokes `/review-hammer <target>` where target is a path, "this commit", or "this branch" (skill)
+2. Skill classifies input into one of five modes: commit, branch, file-diff, file-full, or directory
+3. For commit/branch modes, resolves DIFF_BASE via git and gets changed file list from `git diff --name-only`
+4. For file/directory modes, enumerates files via Glob, detects languages, discovers test file pairings, classifies per-file dirty/clean status
+5. Skill dispatches Haiku file-reviewer and test-suggester agents in batches (default 2, configurable via `REVIEWERS_MAX_CONCURRENT`), passing `DIFF_BASE` for dirty/changed files
+6. Each file-reviewer agent runs 5-6 specialist categories via `uv run review_file.py` (with `--diff-base` when in diff mode)
+7. Each test-suggester agent runs the test-suggestions category with `--test-context` for paired test files
+8. `review_file.py` sends file + category prompt to external LLM API, returns JSON findings; large files (>500 lines) are automatically chunked with overlap and per-chunk deduplication
+9. Retry logic: respects RFC 7231 Retry-After header (seconds or HTTP-date), falls back to jittered exponential backoff
+10. Opus judge pass deduplicates, verifies line numbers, filters false positives
+11. Final severity-ranked markdown report (with input mode context in header) presented to user
 
 ### /test-hammer (test suggestions only)
 1. User invokes `/test-hammer <path>` (skill)
