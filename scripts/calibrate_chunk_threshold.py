@@ -81,7 +81,7 @@ def run_review(
     source_code: str,
     language: str = "python",
     script_dir: Path = None,
-) -> tuple[bool, float, dict | None]:
+) -> tuple[bool, float, dict]:
     """
     Send source code to review API via review_file.py.
 
