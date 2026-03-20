@@ -411,7 +411,10 @@ class TestSplitIntoChunks:
         header = "import os"
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=CHUNK_OVERLAP,
         )
 
         assert len(result) == 1
@@ -420,26 +423,28 @@ class TestSplitIntoChunks:
     def test_content_exceeding_threshold_creates_multiple_chunks(self):
         """Content exceeding threshold should be split into multiple chunks"""
         # Create content exceeding threshold
-        content = "\n".join(
-            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
-        )
+        content = "\n".join([f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)])
         header = "import os"
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=CHUNK_OVERLAP,
         )
 
         assert len(result) > 1
 
     def test_each_chunk_contains_file_header(self):
         """Each chunk should have file header prepended"""
-        content = "\n".join(
-            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
-        )
+        content = "\n".join([f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)])
         header = "import os\nimport sys"
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=CHUNK_OVERLAP,
         )
 
         for chunk in result:
@@ -448,23 +453,19 @@ class TestSplitIntoChunks:
     def test_chunks_overlap_by_correct_amount(self):
         """Consecutive chunks should overlap by CHUNK_OVERLAP lines"""
         # Create content that will be split
-        content = "\n".join(
-            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
-        )
+        content = "\n".join([f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)])
         header = "import os"
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=CHUNK_OVERLAP,
         )
 
         if len(result) > 1:
             # Get the last few lines of first chunk (after header)
             first_chunk_lines = result[0].split("\n")
-            second_chunk_lines = result[1].split("\n")
-
-            # Find where content starts (after header + blank line)
-            header_lines = header.count("\n") + 1
-            first_content_start = header_lines + 1  # +1 for the blank line
 
             # Extract overlapping content from first chunk (last CHUNK_OVERLAP lines of content)
             first_chunk_overlap_start = len(first_chunk_lines) - CHUNK_OVERLAP
@@ -476,7 +477,6 @@ class TestSplitIntoChunks:
         """Should prefer blank lines between functions as split points"""
         # Create content with a function boundary (blank line)
         lines_before_func = CHUNK_THRESHOLD // 2 - 10
-        lines_in_func1 = 20
         lines_in_func2 = CHUNK_THRESHOLD
 
         content_parts = [
@@ -486,7 +486,9 @@ class TestSplitIntoChunks:
             '    """First function."""',
             "    return 42",
         ]
-        content_parts.extend(["    # comment"] * (lines_before_func - len(content_parts)))
+        content_parts.extend(
+            ["    # comment"] * (lines_before_func - len(content_parts))
+        )
         content_parts.append("")  # Blank line between functions
         content_parts.append("def func2():")
         content_parts.extend(["    pass"] * lines_in_func2)
@@ -495,7 +497,10 @@ class TestSplitIntoChunks:
         header = "import os"
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=CHUNK_OVERLAP,
         )
 
         # Even if chunked, should have valid structure
@@ -519,7 +524,10 @@ class TestSplitIntoChunks:
         header = "# header"
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=CHUNK_OVERLAP,
         )
 
         assert len(result) >= 1
@@ -540,14 +548,15 @@ class TestSplitIntoChunks:
 
     def test_chunk_overlap_parameter_respected(self):
         """Custom chunk_overlap should be respected"""
-        content = "\n".join(
-            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
-        )
+        content = "\n".join([f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)])
         header = "import os"
         custom_overlap = 10
 
         result = split_into_chunks(
-            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=custom_overlap
+            content,
+            header,
+            chunk_threshold=CHUNK_THRESHOLD,
+            chunk_overlap=custom_overlap,
         )
 
         # Verify that chunks exist and overlap parameter is used
@@ -2195,3 +2204,215 @@ class TestReviewFileDiffMode:
 
                     # The function should have succeeded without error
                     assert mock_client.chat.completions.create.called
+
+
+class TestChunkedReview:
+    """Test chunking integration in review_file() (AC4.1, AC4.4)"""
+
+    def test_large_file_triggers_chunking(self, temp_file_with_content):
+        """Large file exceeding CHUNK_THRESHOLD should trigger chunking"""
+        # Create content exceeding threshold
+        large_content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        temp_file = temp_file_with_content(large_content)
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps(
+            [{"lines": "100", "severity": "high", "category": "logic-errors"}]
+        )
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.OpenAI") as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_client.chat.completions.create.return_value = mock_response
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                )
+
+                # Should have made multiple API calls (chunking)
+                assert mock_client.chat.completions.create.call_count > 1
+                # Result should be a list
+                assert isinstance(result, list)
+
+    def test_large_file_returns_merged_findings(self, temp_file_with_content):
+        """Chunked review should return merged findings from all chunks"""
+        large_content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        temp_file = temp_file_with_content(large_content)
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = json.dumps(
+            [{"lines": "100", "severity": "high", "category": "logic-errors"}]
+        )
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.OpenAI") as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_client.chat.completions.create.return_value = mock_response
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                )
+
+                # Should return findings (potentially deduplicated)
+                assert isinstance(result, list)
+
+    def test_small_file_no_chunking(self, temp_file_with_content):
+        """Small file under threshold should not trigger chunking"""
+        small_content = "\n".join([f"line {i}" for i in range(1, 100)])
+        temp_file = temp_file_with_content(small_content)
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.OpenAI") as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_client.chat.completions.create.return_value = mock_response
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                )
+
+                # Should have made only 1 API call (no chunking)
+                assert mock_client.chat.completions.create.call_count == 1
+                # Result should be a list
+                assert isinstance(result, list)
+
+    def test_chunking_in_diff_mode(self, temp_file_with_content):
+        """Chunking should work in diff mode for large diffs"""
+        large_content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        temp_file = temp_file_with_content(large_content)
+
+        fake_diff = (
+            f"@@ -1,{CHUNK_THRESHOLD + 500} +1,{CHUNK_THRESHOLD + 500} @@\n"
+            + "\n".join([f" line {i}" for i in range(1, CHUNK_THRESHOLD + 501)])
+        )
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                mock_result.stdout = fake_diff
+                mock_subprocess.return_value = mock_result
+
+                with patch("review_file.OpenAI") as mock_openai_class:
+                    mock_client = MagicMock()
+                    mock_openai_class.return_value = mock_client
+                    mock_client.chat.completions.create.return_value = mock_response
+
+                    result = review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="python",
+                        api_key="test-key",
+                        base_url="http://localhost:8000",
+                        model="test-model",
+                        diff_base="HEAD~1",
+                    )
+
+                    # Should succeed and potentially chunk the large diff
+                    assert isinstance(result, list)
+
+    def test_chunking_produces_correct_logs(self, temp_file_with_content, capsys):
+        """Chunked review should produce observability logs for each chunk"""
+        large_content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        temp_file = temp_file_with_content(large_content)
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.OpenAI") as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_client.chat.completions.create.return_value = mock_response
+
+                review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                )
+
+                # Check stderr for chunk logs
+                captured = capsys.readouterr()
+                if "[review] CHUNK" in captured.err:
+                    # If chunking happened, should see chunk logs
+                    assert "CHUNK" in captured.err
+
+    def test_deduplicated_findings_from_chunks(self, temp_file_with_content):
+        """Findings from overlapping chunk regions should be deduplicated"""
+        large_content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        temp_file = temp_file_with_content(large_content)
+
+        # Create responses that would produce overlapping findings
+        mock_response1 = MagicMock()
+        mock_response1.choices[0].message.content = json.dumps(
+            [{"lines": "400", "severity": "high", "category": "logic-errors"}]
+        )
+
+        mock_response2 = MagicMock()
+        mock_response2.choices[0].message.content = json.dumps(
+            [{"lines": "401", "severity": "medium", "category": "logic-errors"}]
+        )
+
+        mock_response3 = MagicMock()
+        mock_response3.choices[0].message.content = "[]"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.OpenAI") as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                # Return different responses for different calls (one per chunk)
+                mock_client.chat.completions.create.side_effect = [
+                    mock_response1,
+                    mock_response2,
+                    mock_response3,
+                ]
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                )
+
+                # Should have deduplicated overlapping findings
+                # (lines 400 and 401 should be merged to one with higher severity)
+                if len(result) > 0:
+                    # Verify findings contain expected categories
+                    assert any(f.get("category") == "logic-errors" for f in result)

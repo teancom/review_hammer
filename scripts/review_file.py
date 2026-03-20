@@ -433,7 +433,6 @@ def deduplicate_findings(all_findings: list[list]) -> list:
     for finding in flattened:
         # Check if this finding is a duplicate of any already-kept finding
         is_duplicate = False
-        duplicate_idx = None
 
         for j, kept in enumerate(deduplicated):
             # Check if same category and overlapping lines
@@ -444,25 +443,18 @@ def deduplicate_findings(all_findings: list[list]) -> list:
             kept_start, kept_end = parse_lines(kept.get("lines", "1"))
 
             # Check if line ranges overlap or are within 2 lines
-            if (
-                (
-                    finding_start <= kept_end + 2
-                    and finding_end >= kept_start - 2
-                )
-                or abs(finding_start - kept_start) <= 2
-            ):
+            if (finding_start <= kept_end + 2 and finding_end >= kept_start - 2) or abs(
+                finding_start - kept_start
+            ) <= 2:
                 # Found a duplicate
                 is_duplicate = True
-                duplicate_idx = j
 
                 # Compare severity and potentially replace
                 severity_order = {"critical": 3, "high": 2, "medium": 1}
                 finding_severity = severity_order.get(
                     finding.get("severity", "medium"), 0
                 )
-                kept_severity = severity_order.get(
-                    kept.get("severity", "medium"), 0
-                )
+                kept_severity = severity_order.get(kept.get("severity", "medium"), 0)
 
                 if finding_severity > kept_severity:
                     # Replace kept with finding
@@ -788,6 +780,118 @@ class RetryExhaustedError(Exception):
     pass
 
 
+def _call_api(
+    client: OpenAI,
+    system_prompt: str,
+    user_message: str,
+    model: str,
+    category: str,
+    file_path: str,
+    source_lines: int,
+    start_time: float,
+) -> list:
+    """
+    Make an API call with retry logic and return parsed findings.
+
+    Args:
+        client: OpenAI client instance (already configured with timeout and max_retries=0)
+        system_prompt: System prompt for the API call
+        user_message: User message for the API call
+        model: Model name to use
+        category: Category for logging and error messages
+        file_path: File path for logging and error messages
+        source_lines: Source line count for logging
+        start_time: Start time for elapsed time calculation
+
+    Returns:
+        List of findings (each is a dict with lines, severity, category, etc.)
+
+    Raises:
+        AuthenticationError: If API authentication fails (no retry)
+        RetryExhaustedError: If all retries exhausted
+    """
+    # Retry loop with exponential backoff
+    backoff = INITIAL_BACKOFF
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0,
+            )
+
+            # Extract response content
+            raw_response = response.choices[0].message.content
+
+            # Parse findings
+            findings = parse_findings(raw_response)
+
+            elapsed = time.time() - start_time
+            print(
+                f"[review] OK {category} for {file_path} "
+                f"({source_lines} lines, {len(findings)} findings, "
+                f"{elapsed:.1f}s, attempt {attempt + 1})",
+                file=sys.stderr,
+            )
+            return findings
+
+        except AuthenticationError:
+            # Do not retry authentication errors
+            raise
+
+        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            # Retry on rate limit, timeout, or connection error
+            error_name = type(e).__name__
+            if attempt < MAX_RETRIES:
+                # Check for Retry-After header (RateLimitError from openai SDK
+                # exposes the response object)
+                retry_after = None
+                if (
+                    isinstance(e, RateLimitError)
+                    and hasattr(e, "response")
+                    and e.response is not None
+                ):
+                    raw_header = e.response.headers.get("retry-after")
+                    if raw_header is not None:
+                        retry_after = parse_retry_after(raw_header)
+
+                if retry_after is not None:
+                    # Server told us exactly how long to wait
+                    wait_time = retry_after
+                    print(
+                        f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                        f"Retry-After: {wait_time:.1f}s",
+                        file=sys.stderr,
+                    )
+                else:
+                    # Exponential backoff with jitter (±25%)
+                    jitter = backoff * random.uniform(-0.25, 0.25)
+                    wait_time = backoff + jitter
+                    print(
+                        f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
+                        f"Retrying in {wait_time:.1f}s...",
+                        file=sys.stderr,
+                    )
+                    backoff = min(backoff * 2, MAX_BACKOFF)
+
+                time.sleep(wait_time)
+            else:
+                elapsed = time.time() - start_time
+                print(
+                    f"[review] FAIL {category} for {file_path} "
+                    f"({source_lines} lines, {elapsed:.1f}s total, "
+                    f"{error_name} after {MAX_RETRIES} retries): {e}",
+                    file=sys.stderr,
+                )
+                raise RetryExhaustedError(f"{error_name} after {MAX_RETRIES} retries")
+
+    # This should not be reached, but raise if somehow loop exits normally
+    raise RetryExhaustedError("Unexpected end of retry loop")
+
+
 def review_file(
     file_path: str,
     category: str,
@@ -920,86 +1024,46 @@ def review_file(
     # Create client with timeout and max_retries=0 (we handle retries ourselves)
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
-    # Retry loop with exponential backoff
-    backoff = INITIAL_BACKOFF
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=0,
-            )
+    # Check if chunking is needed
+    message_lines = user_message.count("\n") + 1
+    if message_lines > CHUNK_THRESHOLD:
+        # Extract file header for chunk context
+        header = extract_file_header(source)
+        chunks = split_into_chunks(user_message, header)
 
-            # Extract response content
-            raw_response = response.choices[0].message.content
-
-            # Parse findings
-            findings = parse_findings(raw_response)
-
-            elapsed = time.time() - start_time
+        all_findings = []
+        for i, chunk in enumerate(chunks):
             print(
-                f"[review] OK {category} for {file_path} "
-                f"({source_lines} lines, {len(findings)} findings, "
-                f"{elapsed:.1f}s, attempt {attempt + 1})",
+                f"[review] CHUNK {i + 1}/{len(chunks)} {category} for {file_path}",
                 file=sys.stderr,
             )
-            return findings
+            chunk_findings = _call_api(
+                client=client,
+                system_prompt=system_prompt,
+                user_message=chunk,
+                model=model,
+                category=category,
+                file_path=file_path,
+                source_lines=source_lines,
+                start_time=start_time,
+            )
+            all_findings.append(chunk_findings)
 
-        except AuthenticationError:
-            # Do not retry authentication errors
-            raise
+        findings = deduplicate_findings(all_findings)
+    else:
+        # Call API with retry logic (no chunking needed)
+        findings = _call_api(
+            client=client,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            model=model,
+            category=category,
+            file_path=file_path,
+            source_lines=source_lines,
+            start_time=start_time,
+        )
 
-        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
-            # Retry on rate limit, timeout, or connection error
-            error_name = type(e).__name__
-            if attempt < MAX_RETRIES:
-                # Check for Retry-After header (RateLimitError from openai SDK
-                # exposes the response object)
-                retry_after = None
-                if (
-                    isinstance(e, RateLimitError)
-                    and hasattr(e, "response")
-                    and e.response is not None
-                ):
-                    raw_header = e.response.headers.get("retry-after")
-                    if raw_header is not None:
-                        retry_after = parse_retry_after(raw_header)
-
-                if retry_after is not None:
-                    # Server told us exactly how long to wait
-                    wait_time = retry_after
-                    print(
-                        f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
-                        f"Retry-After: {wait_time:.1f}s",
-                        file=sys.stderr,
-                    )
-                else:
-                    # Exponential backoff with jitter (±25%)
-                    jitter = backoff * random.uniform(-0.25, 0.25)
-                    wait_time = backoff + jitter
-                    print(
-                        f"{error_name} (attempt {attempt + 1}/{MAX_RETRIES + 1}). "
-                        f"Retrying in {wait_time:.1f}s...",
-                        file=sys.stderr,
-                    )
-                    backoff = min(backoff * 2, MAX_BACKOFF)
-
-                time.sleep(wait_time)
-            else:
-                elapsed = time.time() - start_time
-                print(
-                    f"[review] FAIL {category} for {file_path} "
-                    f"({source_lines} lines, {elapsed:.1f}s total, "
-                    f"{error_name} after {MAX_RETRIES} retries): {e}",
-                    file=sys.stderr,
-                )
-                raise RetryExhaustedError(f"{error_name} after {MAX_RETRIES} retries")
-
-    # This should not be reached, but raise if somehow loop exits normally
-    raise RetryExhaustedError("Unexpected end of retry loop")
+    return findings
 
 
 def main():
