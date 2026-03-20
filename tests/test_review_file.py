@@ -554,6 +554,193 @@ class TestSplitIntoChunks:
         assert len(result) >= 1
 
 
+class TestDeduplicateFindings:
+    """Test finding deduplication for chunk overlap regions (AC4.3)"""
+
+    def test_identical_findings_deduplicated_to_one(self):
+        """Two identical findings should be deduplicated to one"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "high", "category": "logic-errors"}],
+            [{"lines": "42-45", "severity": "high", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 1
+        assert result[0]["lines"] == "42-45"
+
+    def test_same_category_overlapping_lines_deduplicated(self):
+        """Findings with same category and overlapping lines should deduplicate"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "high", "category": "logic-errors"}],
+            [{"lines": "44-47", "severity": "medium", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 1
+        # Should keep the one with higher severity
+        assert result[0]["severity"] == "high"
+
+    def test_same_category_lines_within_two_line_tolerance(self):
+        """Findings within 2 lines of each other should deduplicate"""
+        all_findings = [
+            [{"lines": "42", "severity": "medium", "category": "logic-errors"}],
+            [{"lines": "43", "severity": "high", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 1
+        # Should keep the higher severity one
+        assert result[0]["severity"] == "high"
+
+    def test_different_categories_same_lines_kept_separate(self):
+        """Findings with different categories but same lines should be kept"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "high", "category": "logic-errors"}],
+            [{"lines": "42-45", "severity": "high", "category": "null-safety"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 2
+        categories = {f["category"] for f in result}
+        assert "logic-errors" in categories
+        assert "null-safety" in categories
+
+    def test_same_category_distant_lines_kept_separate(self):
+        """Findings with same category but distant lines should be kept"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "high", "category": "logic-errors"}],
+            [{"lines": "100-105", "severity": "high", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 2
+
+    def test_single_chunk_returned_unchanged(self):
+        """Single chunk input should be returned unchanged"""
+        all_findings = [
+            [
+                {"lines": "42", "severity": "high", "category": "logic-errors"},
+                {"lines": "100", "severity": "medium", "category": "null-safety"},
+            ]
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 2
+        assert result[0]["lines"] == "42"
+        assert result[1]["lines"] == "100"
+
+    def test_empty_input_returns_empty_list(self):
+        """Empty input should return empty list"""
+        result = deduplicate_findings([])
+        assert result == []
+
+    def test_empty_finding_lists_returns_empty(self):
+        """Input with empty finding lists should return empty"""
+        result = deduplicate_findings([[], [], []])
+        assert result == []
+
+    def test_mixed_empty_and_populated_lists(self):
+        """Should handle mix of empty and populated finding lists"""
+        all_findings = [
+            [],
+            [{"lines": "42", "severity": "high", "category": "logic-errors"}],
+            [],
+            [{"lines": "100", "severity": "medium", "category": "null-safety"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 2
+
+    def test_severity_ordering_critical_highest(self):
+        """Critical severity should be kept over high and medium"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "medium", "category": "logic-errors"}],
+            [{"lines": "43-44", "severity": "high", "category": "logic-errors"}],
+            [{"lines": "44-46", "severity": "critical", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 1
+        assert result[0]["severity"] == "critical"
+
+    def test_severity_ordering_high_beats_medium(self):
+        """High severity should be kept over medium"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "medium", "category": "logic-errors"}],
+            [{"lines": "44-46", "severity": "high", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 1
+        assert result[0]["severity"] == "high"
+
+    def test_multiple_duplicates_across_many_chunks(self):
+        """Should deduplicate findings from many chunks correctly"""
+        all_findings = [
+            [
+                {"lines": "10", "severity": "high", "category": "logic-errors"},
+                {"lines": "20", "severity": "medium", "category": "null-safety"},
+            ],
+            [
+                {"lines": "11", "severity": "medium", "category": "logic-errors"},
+                {"lines": "25", "severity": "high", "category": "null-safety"},
+            ],
+            [
+                {"lines": "30", "severity": "critical", "category": "logic-errors"},
+            ],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        # Should have deduplicated the first two (lines 10 and 11, same category, within 2 lines)
+        # Should keep all 3 categories but deduplicate overlaps
+        assert len(result) <= 4
+
+    def test_string_line_format_and_list_format(self):
+        """Should handle both string and list formats for lines field"""
+        all_findings = [
+            [{"lines": "42-45", "severity": "high", "category": "logic-errors"}],
+            [{"lines": [42, 43, 44], "severity": "medium", "category": "logic-errors"}],
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        # Should recognize these as overlapping and deduplicate
+        assert len(result) == 1
+        assert result[0]["severity"] == "high"
+
+    def test_findings_with_additional_fields_preserved(self):
+        """Should preserve additional fields in findings (description, impact, confidence)"""
+        all_findings = [
+            [
+                {
+                    "lines": "42-45",
+                    "severity": "high",
+                    "category": "logic-errors",
+                    "description": "Potential bug",
+                    "impact": "Could cause crash",
+                    "confidence": "high",
+                }
+            ]
+        ]
+
+        result = deduplicate_findings(all_findings)
+
+        assert len(result) == 1
+        assert result[0]["description"] == "Potential bug"
+        assert result[0]["impact"] == "Could cause crash"
+        assert result[0]["confidence"] == "high"
+
+
 class TestReviewFile:
     """Test end-to-end review orchestration (AC2.1 mocked)"""
 

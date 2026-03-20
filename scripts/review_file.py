@@ -398,7 +398,21 @@ def deduplicate_findings(all_findings: list[list]) -> list:
     if not flattened:
         return []
 
-    # Sort by line number for easier deduplication
+    # Helper function to parse line ranges
+    def parse_lines(lines_field):
+        """Parse a lines field into (start, end) tuple."""
+        if isinstance(lines_field, str):
+            parts = lines_field.split("-")
+            start = int(parts[0])
+            end = int(parts[-1]) if len(parts) > 1 else start
+            return (start, end)
+        elif isinstance(lines_field, list) and lines_field:
+            start = lines_field[0]
+            end = lines_field[-1] if len(lines_field) > 1 else start
+            return (start, end)
+        return (1, 1)
+
+    # Helper function to get line number for sorting
     def get_line_number(finding: dict) -> int:
         """Extract the first line number from a finding's lines field."""
         lines_field = finding.get("lines", "1")
@@ -410,61 +424,55 @@ def deduplicate_findings(all_findings: list[list]) -> list:
             return lines_field[0]
         return 1
 
+    # Sort by line number for easier deduplication
     flattened.sort(key=get_line_number)
 
-    # Deduplicate: keep track of which findings to keep
-    seen = set()
+    # Deduplicate by building a new list
     deduplicated = []
 
-    for i, finding in enumerate(flattened):
+    for finding in flattened:
         # Check if this finding is a duplicate of any already-kept finding
         is_duplicate = False
+        duplicate_idx = None
 
-        for kept_idx in seen:
-            kept = flattened[kept_idx]
-
+        for j, kept in enumerate(deduplicated):
             # Check if same category and overlapping lines
             if finding.get("category") != kept.get("category"):
                 continue
-
-            # Parse line ranges
-            def parse_lines(lines_field):
-                """Parse a lines field into (start, end) tuple."""
-                if isinstance(lines_field, str):
-                    parts = lines_field.split("-")
-                    start = int(parts[0])
-                    end = int(parts[-1]) if len(parts) > 1 else start
-                    return (start, end)
-                elif isinstance(lines_field, list) and lines_field:
-                    start = lines_field[0]
-                    end = lines_field[-1] if len(lines_field) > 1 else start
-                    return (start, end)
-                return (1, 1)
 
             finding_start, finding_end = parse_lines(finding.get("lines", "1"))
             kept_start, kept_end = parse_lines(kept.get("lines", "1"))
 
             # Check if line ranges overlap or are within 2 lines
             if (
-                (finding_start <= kept_end + 2 and finding_end >= kept_start - 2)
+                (
+                    finding_start <= kept_end + 2
+                    and finding_end >= kept_start - 2
+                )
                 or abs(finding_start - kept_start) <= 2
             ):
-                # Found a duplicate - keep the one with higher severity
+                # Found a duplicate
+                is_duplicate = True
+                duplicate_idx = j
+
+                # Compare severity and potentially replace
                 severity_order = {"critical": 3, "high": 2, "medium": 1}
-                finding_severity = severity_order.get(finding.get("severity", "medium"), 0)
-                kept_severity = severity_order.get(kept.get("severity", "medium"), 0)
+                finding_severity = severity_order.get(
+                    finding.get("severity", "medium"), 0
+                )
+                kept_severity = severity_order.get(
+                    kept.get("severity", "medium"), 0
+                )
 
                 if finding_severity > kept_severity:
                     # Replace kept with finding
-                    deduplicated[deduplicated.index(kept)] = finding
+                    deduplicated[j] = finding
                 # else: keep the already-kept finding
 
-                is_duplicate = True
                 break
 
         if not is_duplicate:
             deduplicated.append(finding)
-            seen.add(i)
 
     return deduplicated
 
