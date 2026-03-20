@@ -39,7 +39,9 @@ INITIAL_BACKOFF = 1.0  # seconds
 MAX_BACKOFF = 60.0  # seconds
 
 # Chunk threshold in lines — content exceeding this is split into chunks.
-# Set to ~66% of empirically determined API input limit. Calibrated in Phase 3.
+# Calibrated empirically: 500 lines reliably succeeds (168s), 1500 barely succeeds
+# (179s, inconsistent), 1000+ frequently times out at 180s. Keeping 500 as the
+# reliable limit. See scripts/calibrate_chunk_threshold.py for methodology.
 CHUNK_THRESHOLD = 500
 
 # Overlap lines between adjacent chunks (ensures findings near boundaries aren't lost)
