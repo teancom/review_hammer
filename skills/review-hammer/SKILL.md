@@ -331,6 +331,37 @@ After all agents complete, perform these steps as Opus to synthesize findings:
 
 Present the final report using this markdown template:
 
+**For commit mode:**
+```markdown
+# Code Review Report
+
+**Target:** {target_path} (commit: HEAD)
+**Mode:** Diff review (only changed code reviewed)
+**Files reviewed:** {total_file_count}
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
+```
+
+**For branch mode:**
+```markdown
+# Code Review Report
+
+**Target:** {target_path} (branch diff from {merge_base_short_hash})
+**Mode:** Diff review (only changed code reviewed)
+**Files reviewed:** {total_file_count}
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
+```
+
+**For file-diff mode:**
+```markdown
+# Code Review Report
+
+**Target:** {target_path} (uncommitted changes)
+**Mode:** Diff review (only changed code reviewed)
+**Files reviewed:** 1
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
+```
+
+**For file-full mode or directory (existing behavior):**
 ```markdown
 # Code Review Report
 
