@@ -133,6 +133,12 @@ Dispatch test-suggester agents with concurrency control:
    - Wait for all agents in a batch to complete before dispatching next batch
    - Collect JSON output from each agent
 
+6. **Large file handling:**
+   - Large production files are automatically chunked internally by `review_file.py`
+   - The agent does not need to do anything special — chunking, per-chunk API calls, and finding deduplication happen transparently within the script
+   - This means files that previously timed out (e.g., 2900+ line files) will now complete successfully via automatic chunking
+   - No `DIFF_BASE` is passed — test-hammer always reviews the full file
+
 ## Phase 6: Opus Judge Pass
 
 After all agents complete, perform these steps as Opus to synthesize suggestions:
