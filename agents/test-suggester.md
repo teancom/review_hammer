@@ -32,13 +32,13 @@ Parse these four values from the prompt text.
 Construct the review command:
 
 ```
-timeout 180 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE
+timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45
 ```
 
 If `TEST_FILES` is NOT "none", append `--test-context` for each test file path:
 
 ```
-timeout 180 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --test-context TEST_FILE_1 --test-context TEST_FILE_2
+timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45 --test-context TEST_FILE_1 --test-context TEST_FILE_2
 ```
 
 Replace `PLUGIN_ROOT`, `FILE_PATH`, `LANGUAGE`, and `TEST_FILE_*` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.

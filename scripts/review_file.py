@@ -299,9 +299,18 @@ def review_file(
         AuthenticationError: If API authentication fails (no retry)
         RetryExhaustedError: If all retries exhausted
     """
+    # Log start for observability
+    source_lines = 0
+    start_time = time.time()
+    print(
+        f"[review] START {category} for {file_path} (timeout={timeout}s)",
+        file=sys.stderr,
+    )
+
     # Read the file
     with open(file_path, "r") as f:
         source = f.read()
+    source_lines = source.count("\n") + 1
 
     # Prepend line numbers
     numbered_source = prepend_line_numbers(source)
@@ -366,6 +375,13 @@ def review_file(
             # Parse findings
             findings = parse_findings(raw_response)
 
+            elapsed = time.time() - start_time
+            print(
+                f"[review] OK {category} for {file_path} "
+                f"({source_lines} lines, {len(findings)} findings, "
+                f"{elapsed:.1f}s, attempt {attempt + 1})",
+                file=sys.stderr,
+            )
             return findings
 
         except AuthenticationError:
@@ -409,8 +425,11 @@ def review_file(
 
                 time.sleep(wait_time)
             else:
+                elapsed = time.time() - start_time
                 print(
-                    f"Error: {error_name} after {MAX_RETRIES} retries: {e}",
+                    f"[review] FAIL {category} for {file_path} "
+                    f"({source_lines} lines, {elapsed:.1f}s total, "
+                    f"{error_name} after {MAX_RETRIES} retries): {e}",
                     file=sys.stderr,
                 )
                 raise RetryExhaustedError(f"{error_name} after {MAX_RETRIES} retries")
