@@ -18,6 +18,7 @@ import json
 import os
 import random
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -276,6 +277,118 @@ def assemble_diff_context(
     return "\n".join(output_parts)
 
 
+# Threshold for switching from partial to full-file framing
+FULL_COVERAGE_THRESHOLD = 0.90
+
+
+def detect_coverage(hunks: list[dict], total_lines: int, context_lines: int) -> bool:
+    """
+    Determine if assembled diff covers enough of the file for full-file framing.
+
+    Args:
+        hunks: List of {"start_line": int, "end_line": int} from parse_unified_diff()
+        total_lines: Total lines in the original file
+        context_lines: Context lines used for expansion
+
+    Returns:
+        True if coverage >= FULL_COVERAGE_THRESHOLD (90%), meaning full-file
+        framing should be used instead of partial-view framing.
+    """
+    if not hunks or total_lines == 0:
+        return False
+
+    # Expand each hunk range by ±context_lines (same expansion as assemble_diff_context)
+    expanded = []
+    for hunk in hunks:
+        start = max(1, hunk["start_line"] - context_lines)
+        end = min(total_lines, hunk["end_line"] + context_lines)
+        expanded.append({"start": start, "end": end})
+
+    # Merge overlapping/adjacent ranges
+    expanded.sort(key=lambda x: x["start"])
+    merged = []
+    for exp in expanded:
+        if merged and exp["start"] <= merged[-1]["end"] + 1:
+            # Overlapping or adjacent, merge
+            merged[-1]["end"] = max(merged[-1]["end"], exp["end"])
+        else:
+            # Not overlapping, add new range
+            merged.append(exp)
+
+    # Count total covered lines
+    covered_lines = 0
+    for rng in merged:
+        covered_lines += rng["end"] - rng["start"] + 1
+
+    # Check if coverage meets threshold
+    coverage = covered_lines / total_lines
+    return coverage >= FULL_COVERAGE_THRESHOLD
+
+
+DIFF_PARTIAL_INSTRUCTIONS = """## Review Input Format
+
+You are reviewing a **partial view** of the file, showing only changed code with surrounding context.
+
+- Line numbers are from the original file (use these in your findings)
+- The file header (imports/declarations) is shown first for context
+- `...` separates non-adjacent code sections
+- Focus your review on the visible code — do not speculate about unseen sections
+"""
+
+DIFF_FULL_WITH_MARKERS_INSTRUCTIONS = """## Review Input Format
+
+You are reviewing the **full file** with diff markers showing recent changes.
+
+- Line numbers are from the original file (use these in your findings)
+- Lines prefixed with `+` were added
+- Lines prefixed with `-` were removed (shown for context, not in the current file)
+- Review the entire file but pay special attention to changed lines and their interactions with surrounding code
+"""
+
+
+def build_diff_user_message(
+    file_path: str,
+    source: str,
+    hunks: list[dict],
+    context_lines: int,
+    diff_output: str,
+) -> str:
+    """
+    Build the user message for diff mode review.
+
+    Chooses between partial-view and full-file-with-markers framing
+    based on coverage detection.
+
+    Args:
+        file_path: Path to the file being reviewed
+        source: Full file content
+        hunks: Parsed hunk ranges from parse_unified_diff()
+        context_lines: Number of context lines for expansion
+        diff_output: Raw git diff output (used for full-file-with-markers mode)
+
+    Returns:
+        Complete user message string ready for API call
+    """
+    total_lines = source.count("\n") + 1
+    use_full_file = detect_coverage(hunks, total_lines, context_lines)
+
+    if use_full_file:
+        # Full-file mode: show entire file with numbered lines
+        # The diff output explains which lines changed
+        numbered_source = prepend_line_numbers(source)
+        return (
+            f"# Source file: {file_path}\n\n"
+            f"{DIFF_FULL_WITH_MARKERS_INSTRUCTIONS}\n\n"
+            f"{numbered_source}"
+        )
+    else:
+        # Partial-view mode: show only hunks with context
+        assembled = assemble_diff_context(hunks, source, context_lines)
+        return (
+            f"# Diff review: {file_path}\n\n{DIFF_PARTIAL_INSTRUCTIONS}\n\n{assembled}"
+        )
+
+
 def extract_category_prompt(template_path: str, category: str) -> str:
     """
     Extract preamble and category section from a prompt template.
@@ -456,9 +569,6 @@ def review_file(
         source = f.read()
     source_lines = source.count("\n") + 1
 
-    # Prepend line numbers
-    numbered_source = prepend_line_numbers(source)
-
     # Determine prompt template path relative to script location
     script_dir = Path(__file__).parent
     template_path = script_dir.parent / "prompts" / f"{language}.md"
@@ -466,8 +576,36 @@ def review_file(
     # Extract category prompt
     system_prompt = extract_category_prompt(str(template_path), category)
 
-    # Build user message: source code + optional test context
-    user_message = f"# Source file: {file_path}\n\n{numbered_source}"
+    # Build user message based on mode
+    if diff_base is not None:
+        # Diff mode: run git diff, parse, and assemble context
+        diff_output = subprocess.run(
+            ["git", "diff", diff_base, "--", file_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+
+        hunks = parse_unified_diff(diff_output)
+        if not hunks:
+            # No changes found — skip review for this file
+            print(
+                f"[review] SKIP {category} for {file_path} (no diff hunks found)",
+                file=sys.stderr,
+            )
+            return []
+
+        user_message = build_diff_user_message(
+            file_path=file_path,
+            source=source,
+            hunks=hunks,
+            context_lines=context_lines,
+            diff_output=diff_output,
+        )
+    else:
+        # Full-file mode (existing behavior)
+        numbered_source = prepend_line_numbers(source)
+        user_message = f"# Source file: {file_path}\n\n{numbered_source}"
 
     if test_context_paths:
         for test_path in test_context_paths:

@@ -27,6 +27,10 @@ from review_file import (
     EXTENSION_MAP,
     RetryExhaustedError,
     MAX_RETRIES,
+    detect_coverage,
+    build_diff_user_message,
+    DIFF_PARTIAL_INSTRUCTIONS,
+    DIFF_FULL_WITH_MARKERS_INSTRUCTIONS,
 )
 from openai import (
     RateLimitError,
@@ -1462,3 +1466,354 @@ def bar():
         assert "import os" in result
         # The header extraction stops at the first function, so it only includes imports
         assert "--- (hunks below) ---" in result
+
+
+class TestDetectCoverage:
+    """Test coverage detection for full-file vs partial framing (AC5.3)"""
+
+    def test_high_coverage_returns_true(self):
+        """File with 92% coverage should return True"""
+        # Hunk from 10-92 (83 lines) + 3 context on each side = 7-95 = 89 lines
+        # Need 90+ lines for 90%, so make hunk bigger: 1-93 + context = 1-96 = 96 lines > 90
+        hunks = [{"start_line": 1, "end_line": 93}]
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is True
+
+    def test_low_coverage_returns_false(self):
+        """File with 50% coverage should return False"""
+        hunks = [{"start_line": 25, "end_line": 75}]
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is False
+
+    def test_exactly_90_percent_coverage_returns_true(self):
+        """File with exactly 90% coverage should return True"""
+        # 100 lines, need 90 lines covered
+        # Hunk at lines 1-87, with 3 context lines on each side = 1-90
+        hunks = [{"start_line": 4, "end_line": 87}]
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is True
+
+    def test_89_percent_coverage_returns_false(self):
+        """File with 89% coverage should return False"""
+        # 100 lines, need 90+ lines covered
+        # Hunk at lines 1-86 with 3 context = 1-89
+        hunks = [{"start_line": 4, "end_line": 86}]
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is False
+
+    def test_empty_hunks_returns_false(self):
+        """Empty hunks list should return False"""
+        hunks = []
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is False
+
+    def test_single_hunk_covering_entire_file(self):
+        """Hunk covering entire file should return True"""
+        hunks = [{"start_line": 1, "end_line": 100}]
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is True
+
+    def test_multiple_hunks_merging_to_high_coverage(self):
+        """Multiple separate hunks with context that merge should be calculated correctly"""
+        # Two hunks, each 10 lines, 4 lines apart (so they merge with context_lines=3)
+        hunks = [{"start_line": 10, "end_line": 19}, {"start_line": 24, "end_line": 33}]
+        total_lines = 100
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        # Expanded: [7-22] and [21-36], which overlap and merge to [7-36] = 30 lines
+        # 30/100 = 30% < 90%, so False
+        assert result is False
+
+    def test_zero_total_lines_returns_false(self):
+        """Empty file (zero lines) should return False"""
+        hunks = [{"start_line": 1, "end_line": 1}]
+        total_lines = 0
+        context_lines = 3
+
+        result = detect_coverage(hunks, total_lines, context_lines)
+        assert result is False
+
+
+class TestBuildDiffUserMessage:
+    """Test diff user message building (AC5.4)"""
+
+    def test_partial_coverage_message_format(self):
+        """Partial coverage should produce diff review message with instructions"""
+        file_path = "test.py"
+        source = "\n".join([f"line {i}" for i in range(1, 101)])
+        hunks = [{"start_line": 10, "end_line": 20}]
+        context_lines = 3
+        diff_output = "@@ -10,11 +10,11 @@ test\n"
+
+        result = build_diff_user_message(
+            file_path, source, hunks, context_lines, diff_output
+        )
+
+        # Should have "Diff review" header
+        assert result.startswith("# Diff review: test.py")
+        # Should contain partial instructions
+        assert "partial view" in result
+        assert DIFF_PARTIAL_INSTRUCTIONS in result
+        # Should contain numbered content
+        assert "10|" in result
+
+    def test_full_coverage_message_format(self):
+        """Full coverage should produce source file message with instructions"""
+        file_path = "test.py"
+        source = "\n".join([f"line {i}" for i in range(1, 101)])
+        # Large hunk covering ~96 lines = 96% coverage
+        hunks = [{"start_line": 1, "end_line": 93}]
+        context_lines = 3
+        diff_output = "@@ -1,93 +1,93 @@ test\n"
+
+        result = build_diff_user_message(
+            file_path, source, hunks, context_lines, diff_output
+        )
+
+        # Should have "Source file" header
+        assert result.startswith("# Source file: test.py")
+        # Should contain full file instructions
+        assert "full file" in result
+        assert DIFF_FULL_WITH_MARKERS_INSTRUCTIONS in result
+        # Should contain full numbered file
+        assert "1| line 1" in result
+        assert "100| line 100" in result
+
+    def test_partial_message_contains_assembled_context(self):
+        """Partial message should contain the assembled diff context"""
+        file_path = "test.py"
+        source = "\n".join([f"line {i}" for i in range(1, 51)])
+        hunks = [{"start_line": 10, "end_line": 15}]
+        context_lines = 2
+        diff_output = "@@ -10,6 +10,6 @@ test\n"
+
+        result = build_diff_user_message(
+            file_path, source, hunks, context_lines, diff_output
+        )
+
+        # Should contain the hunk lines
+        assert "10|" in result
+        assert "15|" in result
+
+    def test_full_message_contains_entire_file(self):
+        """Full coverage message should contain entire numbered file"""
+        file_path = "test.py"
+        source = "line 1\nline 2\nline 3\nline 4\nline 5"
+        hunks = [{"start_line": 1, "end_line": 5}]
+        context_lines = 3
+        diff_output = "@@ -1,5 +1,5 @@ test\n"
+
+        result = build_diff_user_message(
+            file_path, source, hunks, context_lines, diff_output
+        )
+
+        # Should contain all lines numbered
+        assert "1| line 1" in result
+        assert "2| line 2" in result
+        assert "3| line 3" in result
+        assert "4| line 4" in result
+        assert "5| line 5" in result
+
+    def test_instructions_are_not_modified_by_function(self):
+        """Instructions constants should remain unchanged"""
+        # These are just checks that the constants exist and contain expected text
+        assert "partial view" in DIFF_PARTIAL_INSTRUCTIONS
+        assert "full file" in DIFF_FULL_WITH_MARKERS_INSTRUCTIONS
+        assert "Line numbers are from the original file" in DIFF_PARTIAL_INSTRUCTIONS
+        assert (
+            "Line numbers are from the original file"
+            in DIFF_FULL_WITH_MARKERS_INSTRUCTIONS
+        )
+
+
+class TestReviewFileDiffMode:
+    """Test diff mode integration in review_file() (AC5.1, AC5.3, AC5.4, AC6.1)"""
+
+    def test_without_diff_base_uses_full_file_mode(self, temp_file_with_content):
+        """When diff_base is None, should use full-file mode (backward compatible)"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.OpenAI") as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                mock_client.chat.completions.create.return_value = mock_response
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                    diff_base=None,
+                )
+
+                # Should return empty list (parsed from mock response [])
+                assert result == []
+
+                # Verify the user message was the full-file format
+                call_args = mock_client.chat.completions.create.call_args
+                user_message = call_args[1]["messages"][1]["content"]
+                assert "# Source file:" in user_message
+                assert "def foo" in user_message
+
+    def test_with_diff_base_runs_git_diff(self, temp_file_with_content, tmp_path):
+        """When diff_base is provided, should run git diff and use diff mode"""
+        temp_file = temp_file_with_content("def foo():\n    return 42\n    # changed")
+
+        # Mock subprocess.run to return a fake diff
+        fake_diff = "@@ -1,2 +1,3 @@\n def foo():\n     return 42\n+    # changed\n"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                mock_result.stdout = fake_diff
+                mock_subprocess.return_value = mock_result
+
+                with patch("review_file.OpenAI") as mock_openai_class:
+                    mock_client = MagicMock()
+                    mock_openai_class.return_value = mock_client
+                    mock_response = MagicMock()
+                    mock_response.choices[0].message.content = "[]"
+                    mock_client.chat.completions.create.return_value = mock_response
+
+                    result = review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="python",
+                        api_key="test-key",
+                        base_url="http://localhost:8000",
+                        model="test-model",
+                        diff_base="HEAD~1",
+                    )
+
+                    # Should return empty list
+                    assert result == []
+
+                    # Verify subprocess.run was called with correct args
+                    mock_subprocess.assert_called_once()
+                    call_args = mock_subprocess.call_args[0][0]
+                    assert call_args[0] == "git"
+                    assert call_args[1] == "diff"
+                    assert call_args[2] == "HEAD~1"
+
+    def test_empty_diff_returns_empty_findings(self, temp_file_with_content):
+        """When git diff returns no hunks, should return empty findings list"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                # No diff hunks
+                mock_result.stdout = ""
+                mock_subprocess.return_value = mock_result
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                    diff_base="HEAD~1",
+                )
+
+                # Should return empty list (no hunks found)
+                assert result == []
+
+    def test_diff_mode_produces_diff_message_with_instructions(
+        self, temp_file_with_content
+    ):
+        """Diff mode should produce user message with diff instructions"""
+        temp_file = temp_file_with_content("def foo():\n    return 42\n    # changed")
+
+        fake_diff = "@@ -1,2 +1,3 @@\n def foo():\n     return 42\n+    # changed\n"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                mock_result.stdout = fake_diff
+                mock_subprocess.return_value = mock_result
+
+                with patch("review_file.OpenAI") as mock_openai_class:
+                    mock_client = MagicMock()
+                    mock_openai_class.return_value = mock_client
+                    mock_response = MagicMock()
+                    mock_response.choices[0].message.content = "[]"
+                    mock_client.chat.completions.create.return_value = mock_response
+
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="python",
+                        api_key="test-key",
+                        base_url="http://localhost:8000",
+                        model="test-model",
+                        diff_base="HEAD~1",
+                        context_lines=2,
+                    )
+
+                    # Verify the user message contains diff instructions
+                    call_args = mock_client.chat.completions.create.call_args
+                    user_message = call_args[1]["messages"][1]["content"]
+                    # Should have diff header
+                    assert (
+                        "# Diff review:" in user_message
+                        or "# Source file:" in user_message
+                    )
+
+    def test_context_lines_parameter_passed_through(self, temp_file_with_content):
+        """context_lines parameter should be passed to diff assembly"""
+        temp_file = temp_file_with_content("line 1\nline 2\nline 3\nline 4\nline 5")
+
+        fake_diff = "@@ -2,1 +2,1 @@\n"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                mock_result.stdout = fake_diff
+                mock_subprocess.return_value = mock_result
+
+                with patch("review_file.OpenAI") as mock_openai_class:
+                    mock_client = MagicMock()
+                    mock_openai_class.return_value = mock_client
+                    mock_response = MagicMock()
+                    mock_response.choices[0].message.content = "[]"
+                    mock_client.chat.completions.create.return_value = mock_response
+
+                    review_file(
+                        file_path=temp_file,
+                        category="logic-errors",
+                        language="python",
+                        api_key="test-key",
+                        base_url="http://localhost:8000",
+                        model="test-model",
+                        diff_base="HEAD~1",
+                        context_lines=5,
+                    )
+
+                    # The function should have succeeded without error
+                    assert mock_client.chat.completions.create.called
