@@ -945,6 +945,14 @@ def review_file(
         file=sys.stderr,
     )
 
+    # Check if file exists when using diff_base (skip if deleted before review runs)
+    if diff_base is not None and not os.path.exists(file_path):
+        print(
+            f"[review] SKIP {category} for {file_path} (file deleted)",
+            file=sys.stderr,
+        )
+        return []
+
     # Read the file
     with open(file_path, "r") as f:
         source = f.read()
@@ -972,6 +980,14 @@ def review_file(
             raise ValueError(
                 f"git diff failed for ref '{diff_base}': {e.stderr}"
             ) from e
+
+        # Check for binary files
+        if "Binary files" in diff_output and "differ" in diff_output:
+            print(
+                f"[review] SKIP {category} for {file_path} (binary file)",
+                file=sys.stderr,
+            )
+            return []
 
         hunks = parse_unified_diff(diff_output)
         if not hunks:

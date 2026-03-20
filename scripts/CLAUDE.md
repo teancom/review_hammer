@@ -1,6 +1,6 @@
 # Scripts - Review File Backend
 
-Last verified: 2026-03-12
+Last verified: 2026-03-20
 
 ## Purpose
 Provides the Python CLI that sends a single file + specialist category to an
@@ -16,6 +16,7 @@ component that talks to the external LLM.
   - Never retries authentication errors
   - Exit code 2 + empty JSON `[]` on exhausted retries
   - Line numbers prepended as `{n}| {line}` format before sending to API
+  - In diff mode (`--diff-base`): Gracefully skips binary files and deleted files with stderr logging
 - **Expects**:
   - `REVIEWERS_API_KEY` env var or `--api-key` flag
   - Prompt template at `../prompts/{language}.md` relative to script
