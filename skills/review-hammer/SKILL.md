@@ -90,6 +90,15 @@ When the target is a directory:
      - `__pycache__/`, `.tox/`, `vendor/`, `.venv/`, `venv/`
    - This filtering is done in-context on the Glob results — do NOT shell out to grep or any Bash command
 
+3. **Per-file dirty/clean classification (directory mode only):**
+   - Run via Bash: `git status --porcelain -- {directory_path} 2>/dev/null`
+   - Parse output to identify dirty files (lines starting with ` M`, `M `, `MM`, `A `, `??`, etc.)
+   - For each enumerated file:
+     - If file appears in git status output → mark as dirty, assign `DIFF_BASE` = `HEAD`
+     - If file does NOT appear → mark as clean, assign `DIFF_BASE` = none
+     - If git status failed (not a git repo) → all files are clean (full-file mode)
+   - Store per-file `diff_base` values for Phase 4 dispatch
+
 4. **Handle empty results:**
    - If no supported files are found, report: "No supported language files found in {path}. Nothing to review." (AC1.4)
    - Stop execution
