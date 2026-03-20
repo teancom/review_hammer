@@ -2229,6 +2229,62 @@ class TestReviewFileDiffMode:
                     # The function should have succeeded without error
                     assert mock_client.chat.completions.create.called
 
+    def test_binary_file_in_diff_mode_skipped(self, temp_file_with_content):
+        """Binary file in diff output should be skipped with warning"""
+        temp_file = temp_file_with_content("binary content")
+
+        # Mock git diff to return binary file message
+        binary_diff = "Binary files a/file.bin and b/file.bin differ\n"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                mock_result.stdout = binary_diff
+                mock_subprocess.return_value = mock_result
+
+                result = review_file(
+                    file_path=temp_file,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                    diff_base="HEAD~1",
+                )
+
+                # Should return empty list (binary file skipped)
+                assert result == []
+
+    def test_deleted_file_in_diff_mode_skipped(self, tmp_path):
+        """Deleted file in diff mode should be skipped with warning"""
+        # Create a temp file and then delete it
+        temp_file = tmp_path / "deleted.py"
+        temp_file.write_text("def foo():\n    return 42")
+        file_path = str(temp_file)
+        temp_file.unlink()  # Delete the file
+
+        # Mock git diff to return a valid diff (file exists in diff)
+        fake_diff = "@@ -1,2 +1,3 @@\n def foo():\n     return 42\n+    # changed\n"
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("review_file.subprocess.run") as mock_subprocess:
+                mock_result = MagicMock()
+                mock_result.stdout = fake_diff
+                mock_subprocess.return_value = mock_result
+
+                result = review_file(
+                    file_path=file_path,
+                    category="logic-errors",
+                    language="python",
+                    api_key="test-key",
+                    base_url="http://localhost:8000",
+                    model="test-model",
+                    diff_base="HEAD~1",
+                )
+
+                # Should return empty list (file doesn't exist)
+                assert result == []
+
 
 class TestChunkedReview:
     """Test chunking integration in review_file() (AC4.1, AC4.4)"""
