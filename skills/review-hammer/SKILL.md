@@ -220,6 +220,15 @@ Dispatch specialized reviewer agents with concurrency control:
 5. **Invoke agents from combined queue:**
 
    **For file-reviewer agents:**
+
+   When in diff mode (commit, branch, or file-diff), include `DIFF_BASE`:
+   ```
+   subagent_type: "review-hammer:file-reviewer"
+   description: "Review {filename}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nDIFF_BASE: {diff_base}"
+   ```
+
+   When in full-file mode (file-full or clean files in directory), omit `DIFF_BASE`:
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
@@ -227,13 +236,30 @@ Dispatch specialized reviewer agents with concurrency control:
    ```
 
    **For test-suggester agents (production files only):**
+
+   When in diff mode, include `DIFF_BASE`:
+   ```
+   subagent_type: "review-hammer:test-suggester"
+   description: "Test suggestions for {filename}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nTEST_FILES: {test_files_csv_or_none}\nDIFF_BASE: {diff_base}"
+   ```
+
+   When in full-file mode, omit `DIFF_BASE`:
    ```
    subagent_type: "review-hammer:test-suggester"
    description: "Test suggestions for {filename}"
    prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nTEST_FILES: {test_files_csv_or_none}"
    ```
+
    - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
    - For test-suggester, pass `TEST_FILES` as a comma-separated list of absolute paths, or empty/None if no test files found
+
+   **DIFF_BASE handling by input mode:**
+   - **commit mode:** all files get `DIFF_BASE: HEAD~1`
+   - **branch mode:** all files get `DIFF_BASE: {merge_base_hash}`
+   - **file-diff mode:** file gets `DIFF_BASE: HEAD`
+   - **file-full mode:** no DIFF_BASE (omit from prompt)
+   - **directory mode:** per-file — dirty files get `DIFF_BASE: HEAD`, clean files omit DIFF_BASE
 
 6. **Batch dispatch with concurrency control:**
    - Dispatch agents from the combined queue in batches using the concurrency limit from step 1
