@@ -172,9 +172,7 @@ def _annotate_with_diff_markers(source: str, diff_output: str) -> str:
         # Check for hunk header
         if diff_line.startswith("@@"):
             # Parse @@ -old_start,old_count +new_start,new_count @@
-            import re as re_module
-
-            match = re_module.match(
+            match = re.match(
                 r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@",
                 diff_line,
             )
