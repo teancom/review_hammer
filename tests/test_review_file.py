@@ -2229,7 +2229,7 @@ class TestReviewFileDiffMode:
                     # The function should have succeeded without error
                     assert mock_client.chat.completions.create.called
 
-    def test_binary_file_in_diff_mode_skipped(self, temp_file_with_content):
+    def test_binary_file_in_diff_mode_skipped(self, temp_file_with_content, capsys):
         """Binary file in diff output should be skipped with warning"""
         temp_file = temp_file_with_content("binary content")
 
@@ -2255,7 +2255,11 @@ class TestReviewFileDiffMode:
                 # Should return empty list (binary file skipped)
                 assert result == []
 
-    def test_deleted_file_in_diff_mode_skipped(self, tmp_path):
+                # Verify skip log was written to stderr
+                captured = capsys.readouterr()
+                assert "(binary file)" in captured.err
+
+    def test_deleted_file_in_diff_mode_skipped(self, tmp_path, capsys):
         """Deleted file in diff mode should be skipped with warning"""
         # Create a temp file and then delete it
         temp_file = tmp_path / "deleted.py"
@@ -2284,6 +2288,13 @@ class TestReviewFileDiffMode:
 
                 # Should return empty list (file doesn't exist)
                 assert result == []
+
+                # Verify early exit before subprocess call
+                mock_subprocess.assert_not_called()
+
+                # Verify skip log was written to stderr
+                captured = capsys.readouterr()
+                assert "(file deleted)" in captured.err
 
 
 class TestChunkedReview:
