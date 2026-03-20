@@ -136,6 +136,146 @@ def prepend_line_numbers(source: str) -> str:
     return "\n".join(numbered)
 
 
+def parse_unified_diff(diff_output: str) -> list[dict]:
+    """
+    Parse unified diff output and extract hunk ranges.
+
+    Args:
+        diff_output: Raw output from `git diff` for a single file
+
+    Returns:
+        List of dicts with keys:
+        - start_line: First line number in original file
+        - end_line: Last line number in original file
+        Each dict represents one hunk's range in the original file.
+        Returns empty list if no hunks found.
+    """
+    hunks = []
+    # Pattern: @@ -old_start,old_count +new_start,new_count @@
+    pattern = r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"
+
+    for match in re.finditer(pattern, diff_output, re.MULTILINE):
+        start_line = int(match.group(1))
+        # If count is omitted, it defaults to 1
+        count = int(match.group(2) or "1")
+        end_line = start_line + count - 1
+
+        hunks.append({"start_line": start_line, "end_line": end_line})
+
+    return hunks
+
+
+# Regex pattern for function/class definition starts across common languages
+_DEFINITION_START = re.compile(
+    r"^\s*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?(?:def |class |fn |impl |func |function |export\s+(?:default\s+)?function )",
+)
+
+# Maximum header lines (cap to avoid excessive context)
+MAX_HEADER_LINES = 50
+
+
+def extract_file_header(source: str) -> str:
+    """
+    Extract the file header (imports, type definitions, module-level declarations).
+
+    Returns everything before the first function/class definition, capped at
+    MAX_HEADER_LINES lines.
+
+    Args:
+        source: Full file content
+
+    Returns:
+        Header portion of the file, or empty string if file starts with a definition.
+    """
+    lines = source.splitlines(keepends=False)
+    if not lines:
+        return ""
+
+    # Find the first line that starts a function or class definition
+    for i, line in enumerate(lines):
+        if _DEFINITION_START.match(line):
+            # Found a definition, return lines up to here (capped)
+            header_lines = lines[:i]
+            if len(header_lines) > MAX_HEADER_LINES:
+                header_lines = header_lines[:MAX_HEADER_LINES]
+            return "\n".join(header_lines)
+
+    # No definition found, return entire file (capped)
+    if len(lines) > MAX_HEADER_LINES:
+        return "\n".join(lines[:MAX_HEADER_LINES])
+    return source
+
+
+def assemble_diff_context(
+    hunks: list[dict],
+    source: str,
+    context_lines: int = 3,
+) -> str:
+    """
+    Assemble diff hunks with surrounding context and original line numbers.
+
+    Args:
+        hunks: List of {"start_line": int, "end_line": int} from parse_unified_diff()
+        source: Full file content
+        context_lines: Number of lines to include above and below each hunk
+
+    Returns:
+        Assembled content with file header, then numbered hunk excerpts
+        with `...` separators between non-adjacent blocks.
+        Line numbers match the original file (1-indexed).
+    """
+    if not hunks:
+        return ""
+
+    source_lines = source.splitlines(keepends=False)
+    total_lines = len(source_lines)
+
+    # Expand hunk ranges by context_lines
+    expanded = []
+    for hunk in hunks:
+        start = max(1, hunk["start_line"] - context_lines)
+        end = min(total_lines, hunk["end_line"] + context_lines)
+        expanded.append({"start": start, "end": end})
+
+    # Merge overlapping/adjacent ranges
+    expanded.sort(key=lambda x: x["start"])
+    merged = []
+    for exp in expanded:
+        if merged and exp["start"] <= merged[-1]["end"] + 1:
+            # Overlapping or adjacent, merge
+            merged[-1]["end"] = max(merged[-1]["end"], exp["end"])
+        else:
+            # Not overlapping, add new range
+            merged.append(exp)
+
+    # Determine line number width for proper alignment
+    max_line_num = total_lines
+    width = len(str(max_line_num))
+
+    # Build output with header and hunks
+    header = extract_file_header(source)
+    output_parts = []
+
+    if header:
+        output_parts.append(header)
+        output_parts.append("--- (hunks below) ---")
+
+    # Process merged ranges
+    for i, rng in enumerate(merged):
+        if i > 0:
+            output_parts.append("...")
+
+        # Extract and number lines for this range
+        hunk_lines = []
+        for line_num in range(rng["start"], rng["end"] + 1):
+            line_content = source_lines[line_num - 1]  # 0-indexed array
+            hunk_lines.append(f"{line_num:>{width}}| {line_content}")
+
+        output_parts.append("\n".join(hunk_lines))
+
+    return "\n".join(output_parts)
+
+
 def extract_category_prompt(template_path: str, category: str) -> str:
     """
     Extract preamble and category section from a prompt template.

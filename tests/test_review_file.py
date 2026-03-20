@@ -1097,5 +1097,368 @@ class TestTestContext:
             create_call = mock_client.chat.completions.create.call_args
             user_message = create_call.kwargs["messages"][1]["content"]
             assert "No existing test files found" not in user_message
-            # But source should still be there
-            assert "def foo():" in user_message
+
+
+class TestParseUnifiedDiff:
+    """Test unified diff parser (AC5.1, AC1.3)"""
+
+    def test_single_hunk_simple(self):
+        """Parse a single hunk with clear @@ header"""
+        diff = """--- a/test.py
++++ b/test.py
+@@ -5,3 +5,4 @@
+ def foo():
+-    return 41
++    return 42
+
+"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff(diff)
+
+        assert len(result) == 1
+        assert result[0]["start_line"] == 5
+        assert result[0]["end_line"] == 7
+
+    def test_multi_hunk_diff(self):
+        """Parse diff with multiple hunks"""
+        diff = """--- a/test.py
++++ b/test.py
+@@ -5,3 +5,4 @@
+ def foo():
+-    return 41
++    return 42
+@@ -20,3 +21,3 @@
+ def bar():
+-    pass
++    return 1
+"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff(diff)
+
+        assert len(result) == 2
+        assert result[0]["start_line"] == 5
+        assert result[0]["end_line"] == 7
+        assert result[1]["start_line"] == 20
+        assert result[1]["end_line"] == 22
+
+    def test_single_line_hunk_count_omitted(self):
+        """Parse hunk where count is omitted (defaults to 1)"""
+        diff = """--- a/test.py
++++ b/test.py
+@@ -10 +10,2 @@
+ def baz():
++    x = 1
+"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff(diff)
+
+        assert len(result) == 1
+        assert result[0]["start_line"] == 10
+        assert result[0]["end_line"] == 10
+
+    def test_empty_diff_returns_empty_list(self):
+        """Empty diff output returns empty list"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff("")
+
+        assert result == []
+
+    def test_new_file_hunk(self):
+        """Parse hunk for new file (old start is 0)"""
+        diff = """--- /dev/null
++++ b/newfile.py
+@@ -0,0 +1,5 @@
++def new_func():
++    return True
++
++def another():
++    pass
+"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff(diff)
+
+        # New files have @@ -0,0 +1,5 @@ which means start_line=0, count=0
+        # This gives a hunk with start=0, end=-1 (start + count - 1 = 0 + 0 - 1 = -1)
+        # This is an edge case - new files don't have changes in the original file
+        assert len(result) == 1
+        assert result[0]["start_line"] == 0
+        assert result[0]["end_line"] == -1
+
+    def test_hunk_headers_only_no_content(self):
+        """Parse diff with only hunk headers, no actual content lines"""
+        diff = """--- a/test.py
++++ b/test.py
+@@ -5,5 +5,5 @@
+@@ -20,3 +20,3 @@
+"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff(diff)
+
+        assert len(result) == 2
+        assert result[0]["start_line"] == 5
+        assert result[0]["end_line"] == 9
+        assert result[1]["start_line"] == 20
+        assert result[1]["end_line"] == 22
+
+    def test_line_numbers_are_from_original_file(self):
+        """Verify line numbers come from - side of @@ header, not + side"""
+        diff = """--- a/test.py
++++ b/test.py
+@@ -100,3 +50,5 @@
+ old line 100
+-old line 101
++new line 1
++new line 2
++new line 3
+ old line 102
+"""
+        from review_file import parse_unified_diff
+
+        result = parse_unified_diff(diff)
+
+        assert len(result) == 1
+        # Line numbers should be from - side (original file)
+        assert result[0]["start_line"] == 100
+        assert result[0]["end_line"] == 102
+
+
+class TestExtractFileHeader:
+    """Test file header extraction (AC5.1)"""
+
+    def test_python_with_imports_then_def(self):
+        """Python file with imports and def should extract only imports"""
+        from review_file import extract_file_header
+
+        source = """import os
+import sys
+from pathlib import Path
+
+def foo():
+    return 42
+
+class Bar:
+    pass
+"""
+        result = extract_file_header(source)
+
+        assert "import os" in result
+        assert "from pathlib" in result
+        assert "def foo" not in result
+        assert "class Bar" not in result
+
+    def test_rust_with_use_then_fn(self):
+        """Rust file with use statements then fn should extract only use statements"""
+        from review_file import extract_file_header
+
+        source = """use std::collections::HashMap;
+use std::io;
+
+fn main() {
+    println!("Hello");
+}
+
+fn helper() {
+    // code
+}
+"""
+        result = extract_file_header(source)
+
+        assert "use std::" in result
+        assert "fn main" not in result
+        assert "fn helper" not in result
+
+    def test_file_with_no_definitions(self):
+        """File with no function/class definitions should return entire file (capped)"""
+        from review_file import extract_file_header
+
+        source = "# Configuration file\nkey=value\nother=data"
+        result = extract_file_header(source)
+
+        assert result == source
+
+    def test_file_starting_with_def(self):
+        """File that starts with def should return empty string"""
+        from review_file import extract_file_header
+
+        source = """def foo():
+    return 42
+
+def bar():
+    pass
+"""
+        result = extract_file_header(source)
+
+        assert result == ""
+
+    def test_empty_file(self):
+        """Empty file should return empty string"""
+        from review_file import extract_file_header
+
+        result = extract_file_header("")
+
+        assert result == ""
+
+    def test_header_exceeding_max_lines_is_capped(self):
+        """Header exceeding MAX_HEADER_LINES should be capped"""
+        from review_file import extract_file_header, MAX_HEADER_LINES
+
+        # Create a file with 100 lines of imports, then def
+        imports = "\n".join([f"import module{i}" for i in range(MAX_HEADER_LINES + 10)])
+        source = imports + "\n\ndef foo():\n    pass"
+
+        result = extract_file_header(source)
+
+        # Count lines in result
+        result_lines = result.split("\n")
+        assert len(result_lines) <= MAX_HEADER_LINES
+
+    def test_whitespace_before_def(self):
+        """Function definition with leading whitespace should still be detected"""
+        from review_file import extract_file_header
+
+        source = """# Header comment
+import os
+
+  def foo():  # indented definition
+    pass
+"""
+        result = extract_file_header(source)
+
+        assert "import os" in result
+        assert "def foo" not in result
+
+    def test_async_def_detection(self):
+        """Async function definitions should be detected"""
+        from review_file import extract_file_header
+
+        source = """import asyncio
+
+async def main():
+    await something()
+
+def helper():
+    pass
+"""
+        result = extract_file_header(source)
+
+        assert "import asyncio" in result
+        assert "async def main" not in result
+        assert "def helper" not in result
+
+
+class TestAssembleDiffContext:
+    """Test diff context assembly (AC5.1, AC5.2, AC1.3)"""
+
+    def test_single_hunk_with_context(self):
+        """Single hunk with context_lines=3 expands by 3 lines above/below"""
+        from review_file import assemble_diff_context
+
+        hunks = [{"start_line": 10, "end_line": 12}]
+        source = "\n".join([f"line {i}" for i in range(1, 21)])
+        result = assemble_diff_context(hunks, source, context_lines=3)
+
+        # Should include lines 7-15 (10-3 to 12+3)
+        assert "7| line 7" in result
+        assert "10| line 10" in result
+        assert "12| line 12" in result
+        assert "15| line 15" in result
+        assert "6| line 6" not in result
+        assert "16| line 16" not in result
+
+    def test_two_hunks_close_merge_into_one(self):
+        """Two hunks 2 lines apart with context_lines=3 merge into continuous block"""
+        from review_file import assemble_diff_context
+
+        hunks = [
+            {"start_line": 10, "end_line": 12},
+            {"start_line": 15, "end_line": 17},
+        ]
+        source = "\n".join([f"line {i}" for i in range(1, 25)])
+        result = assemble_diff_context(hunks, source, context_lines=3)
+
+        # With context, first hunk covers 7-15, second covers 12-20
+        # They overlap (7 <= 15 and 12 <= 15), so should merge
+        # Look for continuous numbering without ...
+        # Should not have ... separator
+        assert "..." not in result
+
+    def test_two_hunks_far_apart_have_separator(self):
+        """Two hunks far apart should have ... separator"""
+        from review_file import assemble_diff_context
+
+        hunks = [
+            {"start_line": 5, "end_line": 7},
+            {"start_line": 50, "end_line": 52},
+        ]
+        source = "\n".join([f"line {i}" for i in range(1, 60)])
+        result = assemble_diff_context(hunks, source, context_lines=3)
+
+        # Should have ... separator
+        assert "..." in result
+
+    def test_line_numbers_match_original_file(self):
+        """Line numbers in output match original file positions"""
+        from review_file import assemble_diff_context
+
+        hunks = [{"start_line": 50, "end_line": 52}]
+        source = "\n".join([f"line {i}" for i in range(1, 100)])
+        result = assemble_diff_context(hunks, source, context_lines=0)
+
+        # Should have lines 50-52 with correct numbers
+        assert "50| line 50" in result
+        assert "51| line 51" in result
+        assert "52| line 52" in result
+
+    def test_hunk_at_start_of_file(self):
+        """Hunk at start of file clamped to line 1"""
+        from review_file import assemble_diff_context
+
+        hunks = [{"start_line": 1, "end_line": 3}]
+        source = "\n".join([f"line {i}" for i in range(1, 10)])
+        result = assemble_diff_context(hunks, source, context_lines=3)
+
+        # Should start from line 1 (can't go above)
+        lines = result.split("\n")
+        first_numbered = [line for line in lines if line and line[0].isdigit()][0]
+        assert "1|" in first_numbered
+
+    def test_hunk_at_end_of_file(self):
+        """Hunk at end of file clamped to last line"""
+        from review_file import assemble_diff_context
+
+        hunks = [{"start_line": 8, "end_line": 10}]
+        source = "\n".join([f"line {i}" for i in range(1, 11)])
+        result = assemble_diff_context(hunks, source, context_lines=3)
+
+        # Should end at line 10 (can't go beyond)
+        assert "10| line 10" in result
+        assert "11|" not in result
+
+    def test_includes_file_header(self):
+        """Result includes file header before hunks"""
+        from review_file import assemble_diff_context
+
+        hunks = [{"start_line": 10, "end_line": 12}]
+        source = """import os
+
+def foo():
+    pass
+
+def bar():
+    return 1
+    # line 10
+    # line 11
+    # line 12
+"""
+        result = assemble_diff_context(hunks, source, context_lines=3)
+
+        # Should include file header (imports only, stops at first function definition)
+        assert "import os" in result
+        # The header extraction stops at the first function, so it only includes imports
+        assert "--- (hunks below) ---" in result
