@@ -531,6 +531,111 @@ class TestMainCLI:
                     # Verify OpenAI was called
                     assert mock_openai_class.called
 
+    def test_diff_base_defaults_to_none(self, temp_file_with_content):
+        """--diff-base should default to None when omitted"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("sys.argv", test_argv):
+                with patch("review_file.OpenAI") as mock_openai_class:
+                    mock_client = MagicMock()
+                    mock_openai_class.return_value = mock_client
+                    mock_client.chat.completions.create.return_value = mock_response
+
+                    from review_file import main
+
+                    # Should not raise SystemExit
+                    main()
+
+                    # Verify review_file was called with diff_base=None
+                    assert mock_openai_class.called
+
+    def test_diff_base_parsed_correctly(self, temp_file_with_content):
+        """--diff-base HEAD~1 should be parsed correctly"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        test_argv = [
+            "review_file.py",
+            temp_file,
+            "--category",
+            "logic-errors",
+            "--diff-base",
+            "HEAD~1",
+        ]
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("sys.argv", test_argv):
+                with patch("review_file.review_file") as mock_review_file:
+                    mock_review_file.return_value = []
+
+                    from review_file import main
+
+                    main()
+
+                    # Verify review_file was called with diff_base="HEAD~1"
+                    call_kwargs = mock_review_file.call_args[1]
+                    assert call_kwargs["diff_base"] == "HEAD~1"
+
+    def test_context_lines_parsed_as_integer(self, temp_file_with_content):
+        """--context-lines 5 should be parsed as integer"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        test_argv = [
+            "review_file.py",
+            temp_file,
+            "--category",
+            "logic-errors",
+            "--context-lines",
+            "5",
+        ]
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("sys.argv", test_argv):
+                with patch("review_file.review_file") as mock_review_file:
+                    mock_review_file.return_value = []
+
+                    from review_file import main
+
+                    main()
+
+                    # Verify review_file was called with context_lines=5
+                    call_kwargs = mock_review_file.call_args[1]
+                    assert call_kwargs["context_lines"] == 5
+                    assert isinstance(call_kwargs["context_lines"], int)
+
+    def test_context_lines_defaults_to_3(self, temp_file_with_content):
+        """--context-lines should default to 3 when omitted"""
+        temp_file = temp_file_with_content("def foo():\n    return 42")
+
+        mock_response = MagicMock()
+        mock_response.choices[0].message.content = "[]"
+
+        test_argv = ["review_file.py", temp_file, "--category", "logic-errors"]
+
+        with patch.dict(os.environ, {"REVIEWERS_API_KEY": "test-key"}):
+            with patch("sys.argv", test_argv):
+                with patch("review_file.review_file") as mock_review_file:
+                    mock_review_file.return_value = []
+
+                    from review_file import main
+
+                    main()
+
+                    # Verify review_file was called with context_lines=3
+                    call_kwargs = mock_review_file.call_args[1]
+                    assert call_kwargs["context_lines"] == 3
+
 
 class TestRetryAndBackoff:
     """Test retry and backoff logic for error handling (AC6.1)"""
