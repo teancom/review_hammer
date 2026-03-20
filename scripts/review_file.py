@@ -268,6 +268,8 @@ def review_file(
     model: str,
     timeout: float = 120.0,
     test_context_paths: list[str] | None = None,
+    diff_base: str | None = None,
+    context_lines: int = 3,
 ) -> list:
     """
     Orchestrate code review for a single file.
@@ -289,6 +291,8 @@ def review_file(
         model: Model to use
         timeout: API call timeout in seconds (default 120)
         test_context_paths: Optional list of paths to test files to include as context
+        diff_base: Optional git ref to diff against (e.g., HEAD~1, main). When provided, reviews only changed hunks with context instead of the full file.
+        context_lines: Number of context lines around each diff hunk (default: 3). Only used with diff_base.
 
     Returns:
         List of findings (each is a dict with lines, severity, category, etc.)
@@ -481,6 +485,17 @@ def main():
         dest="test_context",
         help="Path to existing test file(s) to include as context. Can be specified multiple times.",
     )
+    parser.add_argument(
+        "--diff-base",
+        default=None,
+        help="Git ref to diff against (e.g., HEAD~1, main). When provided, reviews only changed hunks with context instead of the full file.",
+    )
+    parser.add_argument(
+        "--context-lines",
+        type=int,
+        default=3,
+        help="Number of context lines around each diff hunk (default: 3). Only used with --diff-base.",
+    )
 
     args = parser.parse_args()
 
@@ -520,6 +535,8 @@ def main():
             model=model,
             timeout=args.timeout,
             test_context_paths=args.test_context,
+            diff_base=args.diff_base,
+            context_lines=args.context_lines,
         )
 
         # Output findings as JSON
