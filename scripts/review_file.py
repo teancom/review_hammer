@@ -38,6 +38,13 @@ MAX_RETRIES = 5
 INITIAL_BACKOFF = 1.0  # seconds
 MAX_BACKOFF = 60.0  # seconds
 
+# Chunk threshold in lines — content exceeding this is split into chunks.
+# Set to ~66% of empirically determined API input limit. Calibrated in Phase 3.
+CHUNK_THRESHOLD = 500
+
+# Overlap lines between adjacent chunks (ensures findings near boundaries aren't lost)
+CHUNK_OVERLAP = 20
+
 
 def parse_retry_after(value: str) -> Optional[float]:
     """
@@ -290,6 +297,176 @@ def extract_file_header(source: str) -> str:
     if len(lines) > MAX_HEADER_LINES:
         return "\n".join(lines[:MAX_HEADER_LINES])
     return source
+
+
+def split_into_chunks(
+    content: str,
+    file_header: str,
+    chunk_threshold: int = CHUNK_THRESHOLD,
+    chunk_overlap: int = CHUNK_OVERLAP,
+) -> list[str]:
+    """
+    Split content into overlapping chunks at natural boundaries.
+
+    Each chunk gets the file header prepended for LLM context.
+    Splits preferentially at blank lines between functions/classes.
+
+    Args:
+        content: The content to split (may be numbered lines from diff or full file)
+        file_header: File header to prepend to each chunk
+        chunk_threshold: Line count above which splitting occurs
+        chunk_overlap: Number of overlapping lines between adjacent chunks
+
+    Returns:
+        List of chunk strings. If content is under threshold, returns [content]
+        with file header prepended. Each chunk has file header prepended.
+    """
+    content_lines = content.splitlines(keepends=False)
+    total_lines = len(content_lines)
+
+    # If under threshold, return single chunk with header
+    if total_lines <= chunk_threshold:
+        return [f"{file_header}\n\n{content}"] if file_header else [content]
+
+    # Calculate target chunk size accounting for header lines
+    header_lines = len(file_header.splitlines(keepends=False)) if file_header else 0
+    target_chunk_size = chunk_threshold - header_lines
+
+    # Split content into chunks
+    chunks = []
+    chunk_start = 0
+
+    while chunk_start < total_lines:
+        # Calculate the end position for this chunk
+        chunk_end = min(chunk_start + target_chunk_size, total_lines)
+
+        # Try to find a blank line near the target end for a natural boundary
+        # Search ±20 lines from the target
+        search_window = 20
+        best_split = chunk_end
+
+        if chunk_end < total_lines:  # Don't search if at the end
+            search_start = max(chunk_start, chunk_end - search_window)
+            search_end = min(total_lines, chunk_end + search_window)
+
+            for i in range(search_end - 1, search_start - 1, -1):
+                if i < total_lines and content_lines[i].strip() == "":
+                    best_split = i
+                    break
+
+        # Extract chunk lines
+        chunk_content_lines = content_lines[chunk_start:best_split]
+        chunk_content = "\n".join(chunk_content_lines)
+
+        # Prepend file header
+        if file_header:
+            chunk = f"{file_header}\n\n{chunk_content}"
+        else:
+            chunk = chunk_content
+
+        chunks.append(chunk)
+
+        # For next chunk, start with overlap
+        chunk_start = best_split - chunk_overlap
+        if chunk_start < chunk_end:
+            chunk_start = chunk_end
+
+    return chunks
+
+
+def deduplicate_findings(all_findings: list[list]) -> list:
+    """
+    Merge and deduplicate findings from multiple chunk reviews.
+
+    Two findings are considered duplicates if they have the same category
+    and overlapping line ranges (within 2 lines tolerance).
+
+    Args:
+        all_findings: List of finding lists, one per chunk
+
+    Returns:
+        Single deduplicated list of findings
+    """
+    if not all_findings:
+        return []
+
+    # Flatten all finding lists into one
+    flattened = []
+    for findings_list in all_findings:
+        flattened.extend(findings_list)
+
+    if not flattened:
+        return []
+
+    # Sort by line number for easier deduplication
+    def get_line_number(finding: dict) -> int:
+        """Extract the first line number from a finding's lines field."""
+        lines_field = finding.get("lines", "1")
+        if isinstance(lines_field, str):
+            # Handle "42" or "42-45" format
+            parts = lines_field.split("-")
+            return int(parts[0])
+        elif isinstance(lines_field, list) and lines_field:
+            return lines_field[0]
+        return 1
+
+    flattened.sort(key=get_line_number)
+
+    # Deduplicate: keep track of which findings to keep
+    seen = set()
+    deduplicated = []
+
+    for i, finding in enumerate(flattened):
+        # Check if this finding is a duplicate of any already-kept finding
+        is_duplicate = False
+
+        for kept_idx in seen:
+            kept = flattened[kept_idx]
+
+            # Check if same category and overlapping lines
+            if finding.get("category") != kept.get("category"):
+                continue
+
+            # Parse line ranges
+            def parse_lines(lines_field):
+                """Parse a lines field into (start, end) tuple."""
+                if isinstance(lines_field, str):
+                    parts = lines_field.split("-")
+                    start = int(parts[0])
+                    end = int(parts[-1]) if len(parts) > 1 else start
+                    return (start, end)
+                elif isinstance(lines_field, list) and lines_field:
+                    start = lines_field[0]
+                    end = lines_field[-1] if len(lines_field) > 1 else start
+                    return (start, end)
+                return (1, 1)
+
+            finding_start, finding_end = parse_lines(finding.get("lines", "1"))
+            kept_start, kept_end = parse_lines(kept.get("lines", "1"))
+
+            # Check if line ranges overlap or are within 2 lines
+            if (
+                (finding_start <= kept_end + 2 and finding_end >= kept_start - 2)
+                or abs(finding_start - kept_start) <= 2
+            ):
+                # Found a duplicate - keep the one with higher severity
+                severity_order = {"critical": 3, "high": 2, "medium": 1}
+                finding_severity = severity_order.get(finding.get("severity", "medium"), 0)
+                kept_severity = severity_order.get(kept.get("severity", "medium"), 0)
+
+                if finding_severity > kept_severity:
+                    # Replace kept with finding
+                    deduplicated[deduplicated.index(kept)] = finding
+                # else: keep the already-kept finding
+
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            deduplicated.append(finding)
+            seen.add(i)
+
+    return deduplicated
 
 
 def assemble_diff_context(

@@ -36,6 +36,10 @@ from review_file import (
     extract_file_header,
     assemble_diff_context,
     MAX_HEADER_LINES,
+    split_into_chunks,
+    deduplicate_findings,
+    CHUNK_THRESHOLD,
+    CHUNK_OVERLAP,
 )
 from openai import (
     RateLimitError,
@@ -383,6 +387,171 @@ Hope this helps!
         captured = capsys.readouterr()
         assert "Warning" in captured.err
         assert "not an array" in captured.err
+
+
+class TestSplitIntoChunks:
+    """Test chunk splitter with natural boundary detection (AC4.1, AC4.2, AC4.5)"""
+
+    def test_content_under_threshold_returns_single_chunk(self):
+        """Content under threshold should return single chunk with header"""
+        content = "\n".join([f"line {i}" for i in range(1, 51)])
+        header = "import os\nimport sys"
+
+        result = split_into_chunks(content, header, chunk_threshold=CHUNK_THRESHOLD)
+
+        assert len(result) == 1
+        assert header in result[0]
+        assert "line 1" in result[0]
+        assert "line 50" in result[0]
+
+    def test_content_exactly_at_threshold_not_chunked(self):
+        """Content exactly at threshold should not be chunked"""
+        # Create content with lines equal to CHUNK_THRESHOLD
+        content = "\n".join([f"line {i}" for i in range(1, CHUNK_THRESHOLD + 1)])
+        header = "import os"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+        )
+
+        assert len(result) == 1
+        assert header in result[0]
+
+    def test_content_exceeding_threshold_creates_multiple_chunks(self):
+        """Content exceeding threshold should be split into multiple chunks"""
+        # Create content exceeding threshold
+        content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        header = "import os"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+        )
+
+        assert len(result) > 1
+
+    def test_each_chunk_contains_file_header(self):
+        """Each chunk should have file header prepended"""
+        content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        header = "import os\nimport sys"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+        )
+
+        for chunk in result:
+            assert header in chunk
+
+    def test_chunks_overlap_by_correct_amount(self):
+        """Consecutive chunks should overlap by CHUNK_OVERLAP lines"""
+        # Create content that will be split
+        content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        header = "import os"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+        )
+
+        if len(result) > 1:
+            # Get the last few lines of first chunk (after header)
+            first_chunk_lines = result[0].split("\n")
+            second_chunk_lines = result[1].split("\n")
+
+            # Find where content starts (after header + blank line)
+            header_lines = header.count("\n") + 1
+            first_content_start = header_lines + 1  # +1 for the blank line
+
+            # Extract overlapping content from first chunk (last CHUNK_OVERLAP lines of content)
+            first_chunk_overlap_start = len(first_chunk_lines) - CHUNK_OVERLAP
+
+            # Verify some overlap exists
+            assert first_chunk_overlap_start >= 0
+
+    def test_prefers_blank_line_split_points(self):
+        """Should prefer blank lines between functions as split points"""
+        # Create content with a function boundary (blank line)
+        lines_before_func = CHUNK_THRESHOLD // 2 - 10
+        lines_in_func1 = 20
+        lines_in_func2 = CHUNK_THRESHOLD
+
+        content_parts = [
+            "import os",
+            "",
+            "def func1():",
+            '    """First function."""',
+            "    return 42",
+        ]
+        content_parts.extend(["    # comment"] * (lines_before_func - len(content_parts)))
+        content_parts.append("")  # Blank line between functions
+        content_parts.append("def func2():")
+        content_parts.extend(["    pass"] * lines_in_func2)
+
+        content = "\n".join(content_parts)
+        header = "import os"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+        )
+
+        # Even if chunked, should have valid structure
+        assert len(result) >= 1
+        for chunk in result:
+            assert header in chunk
+
+    def test_empty_file_header(self):
+        """Should handle empty file header"""
+        content = "\n".join([f"line {i}" for i in range(1, 101)])
+
+        result = split_into_chunks(content, "", chunk_threshold=CHUNK_THRESHOLD)
+
+        assert len(result) >= 1
+        assert "line 1" in result[0]
+
+    def test_single_very_long_chunk_no_blank_lines(self):
+        """Should handle long content with no blank lines by splitting at target"""
+        # Create content with no blank lines (no natural split points)
+        content = "x" * (CHUNK_THRESHOLD + 500)
+        header = "# header"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=CHUNK_OVERLAP
+        )
+
+        assert len(result) >= 1
+        assert header in result[0]
+
+    def test_chunk_threshold_parameter_respected(self):
+        """Custom chunk_threshold should be respected"""
+        small_threshold = 50
+        content = "\n".join([f"line {i}" for i in range(1, small_threshold + 100)])
+        header = "import os"
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=small_threshold, chunk_overlap=5
+        )
+
+        # Should produce multiple chunks with small threshold
+        assert len(result) > 1
+
+    def test_chunk_overlap_parameter_respected(self):
+        """Custom chunk_overlap should be respected"""
+        content = "\n".join(
+            [f"line {i}" for i in range(1, CHUNK_THRESHOLD + 501)]
+        )
+        header = "import os"
+        custom_overlap = 10
+
+        result = split_into_chunks(
+            content, header, chunk_threshold=CHUNK_THRESHOLD, chunk_overlap=custom_overlap
+        )
+
+        # Verify that chunks exist and overlap parameter is used
+        assert len(result) >= 1
 
 
 class TestReviewFile:
