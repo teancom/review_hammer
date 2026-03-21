@@ -968,12 +968,16 @@ def review_file(
     # Build user message based on mode
     if diff_base is not None:
         # Diff mode: run git diff, parse, and assemble context
+        # Run git diff in the file's directory so the ref resolves correctly
+        # even when cwd is a different repo.
+        file_dir = os.path.dirname(os.path.abspath(file_path))
         try:
             result = subprocess.run(
                 ["git", "diff", diff_base, "--", file_path],
                 capture_output=True,
                 text=True,
                 check=True,
+                cwd=file_dir,
             )
             diff_output = result.stdout
         except subprocess.CalledProcessError as e:
