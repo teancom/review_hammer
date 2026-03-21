@@ -38,9 +38,11 @@ if echo "$COMMAND" | grep -q "review-hammer-marketplace"; then
   approve "plugin path lookup auto-approved by Review Hammer plugin"
 fi
 
-# Auto-approve git diff commands (used for large-repo scoping)
-if echo "$COMMAND" | grep -qE '^git diff( |$)'; then
-  approve "git diff auto-approved by Review Hammer plugin"
+# Auto-approve read-only git commands used by smart-input mode detection.
+# These may be prefixed with "cd /path &&" when reviewing external repos,
+# so we match on the git subcommand rather than anchoring to line start.
+if echo "$COMMAND" | grep -qE '(^|&& )git (diff|rev-parse|merge-base|status --porcelain|log --oneline)( |$)'; then
+  approve "read-only git command auto-approved by Review Hammer plugin"
 fi
 
 exit 0
