@@ -35,13 +35,13 @@ Construct the review command:
 **If DIFF_BASE is "none" or was not provided:**
 
 ```
-timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45
+timeout 600 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 180
 ```
 
 **If DIFF_BASE is provided (not "none"):**
 
 ```
-timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 45 --diff-base DIFF_BASE
+timeout 600 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category test-suggestions --language LANGUAGE --timeout 180 --diff-base DIFF_BASE
 ```
 
 If `TEST_FILES` is NOT "none", append `--test-context` for each test file path to whichever command variant above applies.

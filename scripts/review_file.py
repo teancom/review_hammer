@@ -33,7 +33,8 @@ from openai import (
 
 
 # Retry configuration
-MAX_RETRIES = 5
+# Calibrated: 500-line chunks take ~168s. 4 attempts × 180s = 720s worst case per chunk.
+MAX_RETRIES = 3
 INITIAL_BACKOFF = 1.0  # seconds
 MAX_BACKOFF = 60.0  # seconds
 
@@ -899,7 +900,7 @@ def review_file(
     api_key: str,
     base_url: str,
     model: str,
-    timeout: float = 120.0,
+    timeout: float = 180.0,
     test_context_paths: list[str] | None = None,
     diff_base: str | None = None,
     context_lines: int = 3,
@@ -922,7 +923,7 @@ def review_file(
         api_key: OpenAI API key
         base_url: OpenAI-compatible API base URL
         model: Model to use
-        timeout: API call timeout in seconds (default 120)
+        timeout: API call timeout in seconds (default 180)
         test_context_paths: Optional list of paths to test files to include as context
         diff_base: Optional git ref to diff against (e.g., HEAD~1, main). When provided, reviews only changed hunks with context instead of the full file.
         context_lines: Number of context lines around each diff hunk (default: 3). Only used with diff_base.
@@ -1115,8 +1116,8 @@ def main():
     parser.add_argument(
         "--timeout",
         type=float,
-        default=120.0,
-        help="API call timeout in seconds (default: 120)",
+        default=180.0,
+        help="API call timeout in seconds (default: 180)",
     )
     parser.add_argument(
         "--test-context",

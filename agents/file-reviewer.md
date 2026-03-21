@@ -69,12 +69,12 @@ For each category, run this exact command pattern via Bash:
 
 **If DIFF_BASE is "none" or was not provided:**
 ```
-timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE --timeout 45
+timeout 600 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE --timeout 180
 ```
 
 **If DIFF_BASE is provided (not "none"):**
 ```
-timeout 300 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE --timeout 45 --diff-base DIFF_BASE
+timeout 600 uv run PLUGIN_ROOT/scripts/review_file.py FILE_PATH --category CATEGORY --language LANGUAGE --timeout 180 --diff-base DIFF_BASE
 ```
 
 Replace `PLUGIN_ROOT`, `FILE_PATH`, `CATEGORY`, `LANGUAGE`, and `DIFF_BASE` with the actual literal values from your inputs. Do NOT use shell variables like `${CLAUDE_PLUGIN_ROOT}`.
@@ -83,12 +83,12 @@ Replace `PLUGIN_ROOT`, `FILE_PATH`, `CATEGORY`, `LANGUAGE`, and `DIFF_BASE` with
 
 Without diff-base:
 ```
-timeout 300 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python --timeout 45
+timeout 600 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python --timeout 180
 ```
 
 With diff-base (DIFF_BASE is `main`):
 ```
-timeout 300 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python --timeout 45 --diff-base main
+timeout 600 uv run /Users/joe/.claude/plugins/cache/review-hammer-marketplace/review-hammer/0.6.0/scripts/review_file.py src/main.py --category race-conditions --language python --timeout 180 --diff-base main
 ```
 
 **For each invocation:**

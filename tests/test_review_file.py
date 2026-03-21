@@ -805,7 +805,7 @@ class TestReviewFile:
             mock_openai_class.assert_called_once_with(
                 api_key="test-key",
                 base_url="https://api.example.com/",
-                timeout=120.0,
+                timeout=180.0,
                 max_retries=0,
             )
 
@@ -1054,7 +1054,9 @@ class TestRetryAndBackoff:
             )
 
             with patch("review_file.time.sleep") as mock_sleep:
-                with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                with pytest.raises(
+                    RetryExhaustedError, match=f"after {MAX_RETRIES} retries"
+                ):
                     review_file(
                         file_path=temp_file,
                         category="logic-errors",
@@ -1111,7 +1113,9 @@ class TestRetryAndBackoff:
             )
 
             with patch("review_file.time.sleep") as mock_sleep:
-                with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                with pytest.raises(
+                    RetryExhaustedError, match=f"after {MAX_RETRIES} retries"
+                ):
                     review_file(
                         file_path=temp_file,
                         category="logic-errors",
@@ -1139,7 +1143,9 @@ class TestRetryAndBackoff:
             )
 
             with patch("review_file.time.sleep") as mock_sleep:
-                with pytest.raises(RetryExhaustedError, match="after 5 retries"):
+                with pytest.raises(
+                    RetryExhaustedError, match=f"after {MAX_RETRIES} retries"
+                ):
                     review_file(
                         file_path=temp_file,
                         category="logic-errors",
@@ -1226,13 +1232,10 @@ class TestRetryAndBackoff:
 
                 # Extract sleep durations from calls
                 sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
-                # With jitter=0, should be [1.0, 2.0, 4.0, 8.0, 16.0]
+                # With jitter=0, backoff doubles each retry: 1, 2, 4, 8, 16...
                 assert len(sleep_calls) == MAX_RETRIES
-                assert sleep_calls[0] == 1.0
-                assert sleep_calls[1] == 2.0
-                assert sleep_calls[2] == 4.0
-                assert sleep_calls[3] == 8.0
-                assert sleep_calls[4] == 16.0
+                for i, duration in enumerate(sleep_calls):
+                    assert duration == 2**i
 
     def test_retry_after_header_respected(self, temp_file_with_content):
         """When server sends Retry-After header, use that instead of backoff"""
