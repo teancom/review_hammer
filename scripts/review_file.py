@@ -22,7 +22,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from openai import (
     OpenAI,
@@ -51,7 +50,7 @@ CHUNK_OVERLAP = 20
 SEVERITY_ORDER = {"critical": 3, "high": 2, "medium": 1}
 
 
-def parse_retry_after(value: str) -> Optional[float]:
+def parse_retry_after(value: str) -> float | None:
     """
     Parse an RFC 7231 Retry-After header value.
 

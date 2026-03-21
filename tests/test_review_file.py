@@ -40,6 +40,7 @@ from review_file import (
     deduplicate_findings,
     CHUNK_THRESHOLD,
     CHUNK_OVERLAP,
+    FULL_COVERAGE_THRESHOLD,
 )
 from openai import (
     RateLimitError,
@@ -1902,24 +1903,28 @@ class TestDetectCoverage:
         result = detect_coverage(hunks, total_lines, context_lines)
         assert result is False
 
-    def test_exactly_90_percent_coverage_returns_true(self):
-        """File with exactly 90% coverage should return True"""
-        # 100 lines, need 90 lines covered
-        # Hunk at lines 1-87, with 3 context lines on each side = 1-90
-        hunks = [{"start_line": 4, "end_line": 87}]
+    def test_exactly_at_threshold_returns_true(self):
+        """File with exactly FULL_COVERAGE_THRESHOLD coverage should return True"""
         total_lines = 100
         context_lines = 3
+        # Need exactly threshold% of lines covered after context expansion
+        needed = int(total_lines * FULL_COVERAGE_THRESHOLD)  # 90 at 0.90
+        # Hunk with context expansion: start_line-context to end_line+context
+        # Set hunk so expanded range = exactly needed lines (1 to needed)
+        hunks = [{"start_line": 1 + context_lines, "end_line": needed - context_lines}]
 
         result = detect_coverage(hunks, total_lines, context_lines)
         assert result is True
 
-    def test_89_percent_coverage_returns_false(self):
-        """File with 89% coverage should return False"""
-        # 100 lines, need 90+ lines covered
-        # Hunk at lines 1-86 with 3 context = 1-89
-        hunks = [{"start_line": 4, "end_line": 86}]
+    def test_just_below_threshold_returns_false(self):
+        """File with coverage just below FULL_COVERAGE_THRESHOLD should return False"""
         total_lines = 100
         context_lines = 3
+        needed = int(total_lines * FULL_COVERAGE_THRESHOLD)  # 90 at 0.90
+        # One line short of threshold after expansion
+        hunks = [
+            {"start_line": 1 + context_lines, "end_line": needed - context_lines - 1}
+        ]
 
         result = detect_coverage(hunks, total_lines, context_lines)
         assert result is False
@@ -2512,6 +2517,5 @@ class TestChunkedReview:
 
                 # Should have deduplicated overlapping findings
                 # (lines 400 and 401 should be merged to one with higher severity)
-                if len(result) > 0:
-                    # Verify findings contain expected categories
-                    assert any(f.get("category") == "logic-errors" for f in result)
+                assert len(result) >= 1
+                assert any(f.get("category") == "logic-errors" for f in result)
