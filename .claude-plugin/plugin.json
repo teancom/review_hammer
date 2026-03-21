@@ -1,6 +1,6 @@
 {
   "name": "review-hammer",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "description": "High-precision automated code review using specialized LLM agents with an Opus judge pass",
   "author": {
     "name": "teancom",

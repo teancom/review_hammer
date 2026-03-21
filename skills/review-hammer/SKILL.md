@@ -189,9 +189,8 @@ For each production file discovered in Phase 3, discover companion test files us
 Dispatch specialized reviewer agents with concurrency control:
 
 1. **Read concurrency limit:**
-   - Run via Bash: `printenv REVIEWERS_MAX_CONCURRENT`
-   - If set, use that value as the batch size (must be 1-10; ignore invalid values)
-   - If not set or empty, default to **2**
+   - Run via Bash: `printenv REVIEWERS_MAX_CONCURRENT 2>/dev/null || echo 2`
+   - Use the output as the batch size (must be 1-10; ignore invalid values, default to **2**)
 
 2. **Prevent system sleep (macOS):**
    - Run via Bash: `caffeinate -i -w $$ &`
