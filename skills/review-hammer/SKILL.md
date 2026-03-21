@@ -9,22 +9,61 @@ argument-hint: <file-or-directory-path>
 
 This skill orchestrates a high-precision code review pipeline. When invoked, it enumerates source files, detects languages, dispatches specialized Haiku `file-reviewer` agents in parallel, collects findings, performs an Opus judge pass for deduplication and verification, and presents a final severity-ranked report.
 
-## Phase 1: Input Validation
+## Phase 1: Input Mode Detection
 
 When this skill is invoked with `$ARGUMENTS`:
 
-1. **Parse the target path:**
-   - Extract the file or directory path from `$ARGUMENTS`
-   - If no arguments provided, ask the user: "Which file or directory would you like me to review?"
+1. **Classify the input mode:**
 
-2. **Verify path existence:**
-   - Use the Glob tool to confirm the path exists (do NOT use Bash)
-   - If the path does not exist, report clearly: "Error: Path does not exist: {path}" (AC1.3)
-   - Stop execution
+   Examine `$ARGUMENTS` and classify into one of five modes:
 
-3. **Determine target type:**
-   - If the path is a single file, proceed to Phase 3 with a single-file list
-   - If the path is a directory, proceed to Phase 2
+   | Pattern | Mode | DIFF_BASE | File List Source |
+   |---------|------|-----------|------------------|
+   | Contains "commit" (e.g., "this commit", "last commit") | commit | Resolved via git | `git diff --name-only` |
+   | Contains "branch" (e.g., "this branch") | branch | Resolved via git merge-base | `git diff --name-only` |
+   | Is a file path AND file has uncommitted changes | file-diff | HEAD | Single file |
+   | Is a file path AND file is clean (no uncommitted changes) | file-full | (none) | Single file |
+   | Is a directory path | directory | Per-file (see Phase 2) | Directory enumeration |
+   | No arguments provided | (prompt) | — | Ask user |
+
+   If no arguments provided, ask the user: "Which file or directory would you like me to review? You can also say 'this commit' or 'this branch'."
+
+2. **For commit mode:**
+   - Run via Bash: `git rev-parse --verify HEAD 2>/dev/null`
+   - If fails: report "Error: Not a git repository or no commits yet." and stop
+   - Set `DIFF_BASE` to `HEAD~1`
+   - For merge commits (detected via `git rev-list --parents -n 1 HEAD` having 3+ fields): `DIFF_BASE` is `HEAD~1` (reviews the merge diff, AC1.5)
+   - Get changed files: `git diff HEAD~1..HEAD --name-only --diff-filter=ACMR`
+   - Filter to supported extensions only (same extensions as Phase 2 Glob patterns)
+   - If no supported files changed: report "No supported language files changed in this commit." and stop
+
+3. **For branch mode:**
+   - Run via Bash: `git rev-parse --verify HEAD 2>/dev/null`
+   - If fails: report "Error: Not a git repository or no commits yet." and stop
+   - Detect main branch: try `git rev-parse --verify origin/main` then `origin/master`
+   - Find divergence point: `git merge-base HEAD origin/main` (or origin/master)
+   - Set `DIFF_BASE` to the merge-base commit hash
+   - Get changed files: `git diff {DIFF_BASE}..HEAD --name-only --diff-filter=ACMR`
+   - Filter to supported extensions only
+   - If no supported files changed: report "No supported language files changed on this branch." and stop
+
+4. **For file path (single file):**
+   - Use Glob tool to confirm the file exists
+   - If not found: report "Error: Path does not exist: {path}" and stop
+   - Check dirty status via Bash: `git status --porcelain -- {path} 2>/dev/null`
+   - If output is non-empty (file has uncommitted changes): mode = file-diff, `DIFF_BASE` = `HEAD`
+   - If output is empty (file is clean): mode = file-full, `DIFF_BASE` = none
+   - If `git status` fails (not a git repo): mode = file-full, `DIFF_BASE` = none (AC2.3 fallback)
+
+5. **For directory path:**
+   - Use Glob tool to confirm the directory exists
+   - If not found: report "Error: Path does not exist: {path}" and stop
+   - Proceed to Phase 2 (file enumeration) — per-file dirty/clean classification happens there
+
+6. **Store results for subsequent phases:**
+   - `input_mode`: one of "commit", "branch", "file-diff", "file-full", "directory"
+   - `diff_base`: the resolved git ref (or none for file-full mode)
+   - `file_list`: list of files to review (for commit/branch modes, already resolved; for file modes, single file; for directory, resolved in Phase 2)
 
 ## Phase 2: File Enumeration (for directory targets)
 
@@ -50,6 +89,15 @@ When the target is a directory:
      - `node_modules/`, `.git/`, `build/`, `dist/`, `target/`, `.gradle/`
      - `__pycache__/`, `.tox/`, `vendor/`, `.venv/`, `venv/`
    - This filtering is done in-context on the Glob results — do NOT shell out to grep or any Bash command
+
+3. **Per-file dirty/clean classification (directory mode only):**
+   - Run via Bash: `git status --porcelain -- {directory_path} 2>/dev/null`
+   - Parse output to identify dirty files (lines starting with ` M`, `M `, `MM`, `A `, `??`, etc.)
+   - For each enumerated file:
+     - If file appears in git status output → mark as dirty, assign `DIFF_BASE` = `HEAD`
+     - If file does NOT appear → mark as clean, assign `DIFF_BASE` = none
+     - If git status failed (not a git repo) → all files are clean (full-file mode)
+   - Store per-file `diff_base` values for Phase 4 dispatch
 
 4. **Handle empty results:**
    - If no supported files are found, report: "No supported language files found in {path}. Nothing to review." (AC1.4)
@@ -172,6 +220,15 @@ Dispatch specialized reviewer agents with concurrency control:
 5. **Invoke agents from combined queue:**
 
    **For file-reviewer agents:**
+
+   When in diff mode (commit, branch, or file-diff), include `DIFF_BASE`:
+   ```
+   subagent_type: "review-hammer:file-reviewer"
+   description: "Review {filename}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nDIFF_BASE: {diff_base}"
+   ```
+
+   When in full-file mode (file-full or clean files in directory), omit `DIFF_BASE`:
    ```
    subagent_type: "review-hammer:file-reviewer"
    description: "Review {filename}"
@@ -179,13 +236,30 @@ Dispatch specialized reviewer agents with concurrency control:
    ```
 
    **For test-suggester agents (production files only):**
+
+   When in diff mode, include `DIFF_BASE`:
+   ```
+   subagent_type: "review-hammer:test-suggester"
+   description: "Test suggestions for {filename}"
+   prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nTEST_FILES: {test_files_csv_or_none}\nDIFF_BASE: {diff_base}"
+   ```
+
+   When in full-file mode, omit `DIFF_BASE`:
    ```
    subagent_type: "review-hammer:test-suggester"
    description: "Test suggestions for {filename}"
    prompt: "FILE_PATH: {absolute_path}\nLANGUAGE: {detected_language}\nPLUGIN_ROOT: {plugin_root}\nTEST_FILES: {test_files_csv_or_none}"
    ```
+
    - Always pass `PLUGIN_ROOT` with the concrete absolute path (never a shell variable)
    - For test-suggester, pass `TEST_FILES` as a comma-separated list of absolute paths, or empty/None if no test files found
+
+   **DIFF_BASE handling by input mode:**
+   - **commit mode:** all files get `DIFF_BASE: HEAD~1`
+   - **branch mode:** all files get `DIFF_BASE: {merge_base_hash}`
+   - **file-diff mode:** file gets `DIFF_BASE: HEAD`
+   - **file-full mode:** no DIFF_BASE (omit from prompt)
+   - **directory mode:** per-file — dirty files get `DIFF_BASE: HEAD`, clean files omit DIFF_BASE
 
 6. **Batch dispatch with concurrency control:**
    - Dispatch agents from the combined queue in batches using the concurrency limit from step 1
@@ -257,6 +331,37 @@ After all agents complete, perform these steps as Opus to synthesize findings:
 
 Present the final report using this markdown template:
 
+**For commit mode:**
+```markdown
+# Code Review Report
+
+**Target:** {target_path} (commit: HEAD)
+**Mode:** Diff review (only changed code reviewed)
+**Files reviewed:** {total_file_count}
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
+```
+
+**For branch mode:**
+```markdown
+# Code Review Report
+
+**Target:** {target_path} (branch diff from {merge_base_short_hash})
+**Mode:** Diff review (only changed code reviewed)
+**Files reviewed:** {total_file_count}
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
+```
+
+**For file-diff mode:**
+```markdown
+# Code Review Report
+
+**Target:** {target_path} (uncommitted changes)
+**Mode:** Diff review (only changed code reviewed)
+**Files reviewed:** 1
+**Findings:** {total_finding_count} ({critical_count} critical, {high_count} high, {medium_count} medium) + {suggestion_count} test suggestions
+```
+
+**For file-full mode or directory (existing behavior):**
 ```markdown
 # Code Review Report
 
