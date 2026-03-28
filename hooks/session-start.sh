@@ -18,7 +18,7 @@ fi
 if [ ${#missing[@]} -eq 0 ]; then
   echo "Review Hammer: Ready."
   echo "  API Base URL: ${REVIEWERS_BASE_URL:-https://api.z.ai/api/paas/v4/}"
-  echo "  Model: ${REVIEWERS_MODEL:-glm-5}"
+  echo "  Model: ${REVIEWERS_MODEL:-glm-5-turbo}"
   exit 0
 else
   echo "Review Hammer: Missing required environment variables: ${missing[*]}"

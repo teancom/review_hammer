@@ -1154,7 +1154,7 @@ def main():
     base_url = args.base_url or os.environ.get(
         "REVIEWERS_BASE_URL", "https://api.z.ai/api/paas/v4/"
     )
-    model = args.model or os.environ.get("REVIEWERS_MODEL", "glm-5")
+    model = args.model or os.environ.get("REVIEWERS_MODEL", "glm-5-turbo")
 
     # Validate required parameters
     if not api_key:
